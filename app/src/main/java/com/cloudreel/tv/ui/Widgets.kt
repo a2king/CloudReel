@@ -1,5 +1,7 @@
 package com.cloudreel.tv.ui
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -10,6 +12,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -25,6 +28,16 @@ import androidx.tv.material3.ClassicCard
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.cloudreel.tv.ui.theme.YingShiColors
+
+@Composable
+fun focusAmount(focused: Boolean): Float {
+    val amount by animateFloatAsState(
+        targetValue = if (focused) 1.08f else 0.94f,
+        animationSpec = tween(durationMillis = 180),
+        label = "focusAmount",
+    )
+    return amount
+}
 
 @Composable
 fun PosterCard(

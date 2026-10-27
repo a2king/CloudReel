@@ -31,6 +31,7 @@ import com.cloudreel.tv.core.show.nextFailCount
 import com.cloudreel.tv.core.show.retainShow
 import com.cloudreel.tv.core.show.sourceCacheFresh
 import com.cloudreel.tv.core.show.stubId
+import com.cloudreel.tv.core.show.watchFraction
 import com.cloudreel.tv.core.model.LiveChannel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
@@ -50,6 +51,12 @@ data class StoredLink(
     val episodes: List<Episode>,
     val rawVodId: String,
     val qualityHint: String?,
+)
+
+data class ContinueCard(
+    val show: ShowRecord,
+    val episodeKey: String,
+    val fraction: Float,
 )
 
 data class ShowSession(
@@ -72,6 +79,19 @@ class ShowCatalog(
         return combine(dao.observeShows(), dao.observeProgress()) { shows, progress ->
             val map = shows.associate { it.id to it.toRecord() }
             continueOrder(progress.map { ProgressMark(it.showId, it.updatedAt) }, map)
+        }
+    }
+
+    fun observeContinueCards(): Flow<List<ContinueCard>> {
+        return combine(dao.observeShows(), dao.observeProgress()) { shows, progress ->
+            val map = shows.associate { it.id to it.toRecord() }
+            progress
+                .sortedByDescending { it.updatedAt }
+                .distinctBy { it.showId }
+                .mapNotNull { row ->
+                    val show = map[row.showId] ?: return@mapNotNull null
+                    ContinueCard(show, row.episodeKey, watchFraction(row.positionMs, row.durationMs))
+                }
         }
     }
 

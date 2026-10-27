@@ -62,6 +62,8 @@ class ShowPipelineTest {
         assertEquals(listOf("a", "b"), ordered.map { it.id })
         val movies = filterShows(ordered, ShowQuery(mediaType = "movie"))
         assertEquals(listOf("a"), movies.map { it.id })
+        assertEquals(0.32f, watchFraction(32, 100), 0.001f)
+        assertEquals(0f, watchFraction(5, 0), 0.001f)
     }
 
     @Test

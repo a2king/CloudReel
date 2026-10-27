@@ -319,6 +319,8 @@ class MediaRepository(
 
     fun observeContinueRecords(): Flow<List<ShowRecord>> = showCatalog.observeContinue()
 
+    fun observeContinueCards(): Flow<List<ContinueCard>> = showCatalog.observeContinueCards()
+
     suspend fun refreshShows(manual: Boolean = false, onShown: suspend (Int) -> Unit = {}) {
         gate()
         showCatalog.refresh(manual, onShown)

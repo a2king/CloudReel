@@ -326,6 +326,11 @@ fun buildShelves(shows: List<ShowRecord>, query: ShowQuery, limit: Int = 24): Sh
     )
 }
 
+fun watchFraction(positionMs: Long, durationMs: Long): Float {
+    if (durationMs <= 0L || positionMs <= 0L) return 0f
+    return (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+}
+
 fun continueOrder(marks: List<ProgressMark>, shows: Map<String, ShowRecord>): List<ShowRecord> {
     return marks
         .sortedByDescending { it.updatedAt }

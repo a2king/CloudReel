@@ -3,7 +3,20 @@ package com.cloudreel.tv.feature.live
 import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.tv.material3.Icon
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -55,7 +68,6 @@ import com.cloudreel.tv.core.show.decodeUrlList
 import com.cloudreel.tv.core.show.dropDeadHead
 import com.cloudreel.tv.core.show.shiftChannel
 import com.cloudreel.tv.ui.Button
-import com.cloudreel.tv.ui.ListItem
 import com.cloudreel.tv.ui.LocalContainer
 import com.cloudreel.tv.ui.OutlinedButton
 import com.cloudreel.tv.ui.TvTextField
@@ -171,6 +183,14 @@ fun LiveScreen(onPush: () -> Unit) {
         cursor = shiftChannel(slots, current, delta)
         notice = channelRows.firstOrNull { it.id == cursor?.channelId }?.name
     }
+    fun shiftCategory(delta: Int) {
+        if (categories.isEmpty()) return
+        val index = categories.indexOfFirst { it.id == cursor?.categoryId }.let { if (it < 0) 0 else it }
+        val next = categories[Math.floorMod(index + delta, categories.size)]
+        val first = channelRows.firstOrNull { it.categoryId == next.id } ?: return
+        cursor = LiveCursor(next.id, first.id, 0)
+        notice = first.name
+    }
     BackHandler(enabled = overlay || adding) {
         overlay = false
         adding = false
@@ -183,29 +203,32 @@ fun LiveScreen(onPush: () -> Unit) {
             .focusable()
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                if (overlay || adding) {
-                    if (event.key == Key.Menu) {
-                        overlay = false
+                when (event.key) {
+                    Key.DirectionUp -> {
+                        move(-1)
+                        true
+                    }
+                    Key.DirectionDown -> {
+                        move(1)
+                        true
+                    }
+                    Key.DirectionLeft -> if (overlay) {
+                        shiftCategory(-1)
                         true
                     } else {
                         false
                     }
-                } else {
-                    when (event.key) {
-                        Key.DirectionUp -> {
-                            move(-1)
-                            true
-                        }
-                        Key.DirectionDown -> {
-                            move(1)
-                            true
-                        }
-                        Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.Menu -> {
-                            overlay = true
-                            true
-                        }
-                        else -> false
+                    Key.DirectionRight -> if (overlay) {
+                        shiftCategory(1)
+                        true
+                    } else {
+                        false
                     }
+                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.Menu -> {
+                        overlay = !overlay
+                        true
+                    }
+                    else -> false
                 }
             },
     ) {
@@ -233,7 +256,7 @@ fun LiveScreen(onPush: () -> Unit) {
             }
             notice?.let { Text(it, color = YingShiColors.Warning, fontSize = 13.sp) }
             Text(
-                if (phone) "点按画面打开频道列表" else "上下键换台，确认键打开频道列表",
+                if (overlay) "上下键换台  ·  左右键换分类  ·  OK 关闭列表" else if (phone) "点按画面打开频道列表" else "上下键换台，确认键打开频道列表",
                 color = YingShiColors.Sub,
                 fontSize = 12.sp,
             )
@@ -261,67 +284,115 @@ fun LiveScreen(onPush: () -> Unit) {
             }
         }
         if (overlay || adding) {
-            Column(
+            Box(
                 modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .fillMaxHeight()
-                    .fillMaxWidth(if (phone) 1f else 0.62f)
-                    .background(Color(0xEE101318))
-                    .padding(if (phone) 12.dp else 16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                    .fillMaxSize()
+                    .background(Color(0x66101014))
+                    .clickable { overlay = false },
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("分类", color = YingShiColors.Text, fontSize = 16.sp, modifier = Modifier.weight(1f))
-                    Text("频道", color = YingShiColors.Text, fontSize = 16.sp, modifier = Modifier.weight(1.4f))
-                    OutlinedButton(onClick = { adding = !adding }) { Text(if (adding) "取消" else "添加") }
-                    OutlinedButton(onClick = { overlay = false }) { Text("关闭") }
-                }
-                if (adding) {
-                    LiveUrlForm { name, url, epgUrl ->
-                        notice = repository.addLiveUrl(name, url, epgUrl)
-                        adding = false
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .fillMaxWidth(if (phone) 0.96f else 0.84f)
+                        .fillMaxHeight(if (phone) 0.88f else 0.76f)
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(Color(0xE6101318))
+                        .border(1.dp, Color(0x66FFFFFF), RoundedCornerShape(22.dp))
+                        .clickable(onClick = {})
+                        .padding(if (phone) 12.dp else 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("直播电视", color = YingShiColors.Text, fontSize = 18.sp, modifier = Modifier.weight(1f))
+                        OutlinedButton(onClick = { adding = !adding }) { Text(if (adding) "取消" else "添加") }
+                        OutlinedButton(onClick = { overlay = false; adding = false }) { Text("关闭") }
                     }
-                }
-                if (playlists.isNotEmpty()) {
-                    androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(playlists, key = { it.id }) { playlist ->
-                            if (playlist.id == selectedId) {
-                                Button(onClick = { selectedId = playlist.id }) { Text(playlist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                            } else {
-                                OutlinedButton(onClick = { selectedId = playlist.id }) { Text(playlist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    if (adding) {
+                        LiveUrlForm { name, url, epgUrl ->
+                            notice = repository.addLiveUrl(name, url, epgUrl)
+                            adding = false
+                        }
+                    }
+                    if (playlists.size > 1) {
+                        androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(playlists, key = { it.id }) { playlist ->
+                                if (playlist.id == selectedId) {
+                                    Button(onClick = { selectedId = playlist.id }) { Text(playlist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                                } else {
+                                    OutlinedButton(onClick = { selectedId = playlist.id }) { Text(playlist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                                }
                             }
                         }
                     }
-                }
-                Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    LazyColumn(modifier = Modifier.weight(0.8f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(categories, key = { it.id }) { category ->
-                            ListItem(
-                                selected = category.id == cursor?.categoryId,
-                                onClick = {
-                                    val first = channelRows.firstOrNull { it.categoryId == category.id } ?: return@ListItem
-                                    cursor = LiveCursor(category.id, first.id, 0)
-                                },
-                                headlineContent = { Text(category.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                            )
+                    Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        LazyColumn(modifier = Modifier.weight(0.78f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            items(categories, key = { it.id }) { category ->
+                                val selected = category.id == (cursor?.categoryId ?: categories.firstOrNull()?.id)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(if (selected) Color(0x332E6BFF) else Color.Transparent)
+                                        .border(if (selected) 1.5.dp else 0.dp, if (selected) Color.White else Color.Transparent, RoundedCornerShape(12.dp))
+                                        .clickable {
+                                            val first = channelRows.firstOrNull { it.categoryId == category.id } ?: return@clickable
+                                            cursor = LiveCursor(category.id, first.id, 0)
+                                        }
+                                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Icon(categoryIcon(category.name), contentDescription = null, tint = if (selected) Color.White else YingShiColors.Sub)
+                                    Text(category.name, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
+                        LazyColumn(modifier = Modifier.weight(1.35f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            val visible = channelRows.filter { it.categoryId == (cursor?.categoryId ?: channelRows.firstOrNull()?.categoryId) }
+                            items(visible.size) { index ->
+                                val channel = visible[index]
+                                val selected = channel.id == cursor?.channelId
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (selected) Color(0x332E6BFF) else Color.Transparent)
+                                        .border(if (selected) 1.5.dp else 0.dp, if (selected) Color.White else Color.Transparent, RoundedCornerShape(10.dp))
+                                        .clickable { cursor = LiveCursor(channel.categoryId, channel.id, 0) }
+                                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    Text("%03d".format(index + 1), color = YingShiColors.Sub, fontSize = 12.sp)
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(channel.name, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        channel.epgHint?.takeIf { it.isNotBlank() }?.let { hint ->
+                                            Text(hint, color = YingShiColors.Sub, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
-                    LazyColumn(modifier = Modifier.weight(1.2f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        val visible = channelRows.filter { it.categoryId == (cursor?.categoryId ?: channelRows.firstOrNull()?.categoryId) }
-                        items(visible, key = { it.id }) { channel ->
-                            ListItem(
-                                selected = channel.id == cursor?.channelId,
-                                onClick = { cursor = LiveCursor(channel.categoryId, channel.id, 0) },
-                                headlineContent = { Text(channel.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                supportingContent = channel.epgHint?.let { hint ->
-                                    { Text(hint, color = YingShiColors.Sub, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                                },
-                            )
-                        }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Filled.KeyboardArrowUp, contentDescription = null, tint = YingShiColors.Sub)
+                        Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null, tint = YingShiColors.Sub)
+                        Text("上下键换台", color = YingShiColors.Sub, fontSize = 12.sp)
+                        Spacer(Modifier.weight(1f))
+                        Text("OK  打开或关闭列表", color = YingShiColors.Sub, fontSize = 12.sp)
                     }
                 }
             }
         }
+    }
+}
+
+private fun categoryIcon(name: String): ImageVector {
+    return when {
+        name.contains("地方") || name.contains("省") -> Icons.Filled.Place
+        name.contains("体育") -> Icons.Filled.Star
+        name.contains("卫视") -> Icons.Filled.List
+        else -> Icons.Filled.PlayArrow
     }
 }
 
