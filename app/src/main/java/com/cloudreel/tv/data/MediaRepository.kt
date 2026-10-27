@@ -155,6 +155,10 @@ class MediaRepository(
                         ),
                     )
                 }
+                val health = dao.sourceHealth(TEST_TVBOX_ID)
+                if (health != null && health.lastOkAt == 0L && health.failCount > 0) {
+                    dao.upsertSourceHealth(health.copy(failCount = 0, enabled = true))
+                }
                 ready.complete(Unit)
             } catch (error: Throwable) {
                 ready.completeExceptionally(error)
@@ -665,6 +669,18 @@ class MediaRepository(
 
     private suspend fun entriesFor(config: SourceConfigEntity): List<RawCatalogEntry> {
         val acc = java.util.Collections.synchronizedList(mutableListOf<RawCatalogEntry>())
+        val tvBoxApi = if (config.kind == SourceKinds.TVBOX) {
+            try {
+                // 多仓索引要先选定采集接口。这一步有自己的时限，避免 5 秒片单超时把接口地址掐掉、缓存写不进去。
+                withTimeout(LINE_RESOLVE_TIMEOUT_MS) {
+                    withContext(Dispatchers.IO) { playableLineApi(config) }
+                }
+            } catch (error: TimeoutCancellationException) {
+                return emptyList()
+            }
+        } else {
+            null
+        }
         try {
             withTimeout(AggregatePolicy.SOURCE_TIMEOUT_MS) {
                 withContext(Dispatchers.IO) {
@@ -675,11 +691,8 @@ class MediaRepository(
                         }
                         SourceKinds.CMS -> CmsJsonProvider(http, config.id, config.name, config.location, config.priority)
                             .collectCatalog { acc.add(it) }
-                        SourceKinds.TVBOX -> {
-                            val api = playableLineApi(config)
-                            CmsJsonProvider(http, config.id, config.name, api, config.priority)
-                                .collectCatalog { acc.add(it) }
-                        }
+                        SourceKinds.TVBOX -> CmsJsonProvider(http, config.id, config.name, tvBoxApi!!, config.priority)
+                            .collectCatalog { acc.add(it) }
                     }
                 }
             }
@@ -954,6 +967,8 @@ class MediaRepository(
         const val LIVE_CHANNEL_CAP = 600
         const val TEST_TVBOX_ID = "gitlab_tvbox"
         const val TEST_TVBOX_URL = "https://raw.githubusercontent.com/noimank/tvbox/main/tvboxmuti.json"
+        /** 跟进多仓索引并写入采集接口缓存的时限。片单抓取仍用 AggregatePolicy.SOURCE_TIMEOUT_MS。 */
+        const val LINE_RESOLVE_TIMEOUT_MS = 20_000L
         const val WEBDAV_BODY =
             """<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:displayname/><d:resourcetype/><d:getcontenttype/></d:prop></d:propfind>"""
     }
