@@ -681,7 +681,7 @@ class MediaRepository(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                android.util.Log.w("CloudReel", "选定采集接口失败 ${config.id}: ${error.message}")
+                android.util.Log.w("CloudReel", "选定采集接口失败 ${config.id}: ${error.javaClass.simpleName}: ${error.message}")
                 throw error
             }
         } else {
@@ -986,7 +986,7 @@ class MediaRepository(
         const val TEST_TVBOX_ID = "gitlab_tvbox"
         const val TEST_TVBOX_URL = "https://raw.githubusercontent.com/noimank/tvbox/main/tvboxmuti.json"
         /** 跟进多仓索引并写入采集接口缓存的时限。片单抓取仍用 AggregatePolicy.SOURCE_TIMEOUT_MS。 */
-        const val LINE_RESOLVE_TIMEOUT_MS = 60_000L
+        const val LINE_RESOLVE_TIMEOUT_MS = 90_000L
         const val WEBDAV_BODY =
             """<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:displayname/><d:resourcetype/><d:getcontenttype/></d:prop></d:propfind>"""
     }

@@ -251,7 +251,7 @@ class SubmissionImporter(
     }
 
     internal suspend fun firstPlayableCms(configUrl: String): String {
-        val text = http.getConfig(configUrl)
+        val text = http.getConfig(configUrl, LINE_FETCH_TIMEOUT_SECONDS)
         val document = parseTvBoxDocument(text)
         val direct = configUrl.trimEnd('/')
         if (document.isCmsResponse && document.sites.none { isCmsSite(it) } && document.remoteSources.isEmpty()) {
@@ -573,7 +573,8 @@ class SubmissionImporter(
         const val INDEX_CHILD_LIMIT = 8
         const val INDEX_CHILD_PARALLELISM = 8
         const val INDEX_API_LIMIT = 4
-        const val INDEX_PROBE_TIMEOUT_SECONDS = 4
+        const val INDEX_PROBE_TIMEOUT_SECONDS = 15
+        const val LINE_FETCH_TIMEOUT_SECONDS = 40
     }
 }
 

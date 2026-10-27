@@ -4,6 +4,7 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.Call
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.HttpUrl
@@ -67,11 +68,7 @@ class AppHttp {
         } else {
             builder.method(upper, requestBody ?: ByteArray(0).toRequestBody(null))
         }
-        val call = client.newCall(builder.build())
-        if (callTimeoutSeconds != null) {
-            call.timeout().timeout(callTimeoutSeconds.toLong(), TimeUnit.SECONDS)
-        }
-        call.execute().use { response ->
+        timedCall(builder.build(), callTimeoutSeconds).execute().use { response ->
             val cookies = response.headers("Set-Cookie")
             return HttpText(readLimited(response, maxBytes, truncate), cookies)
         }
@@ -99,11 +96,7 @@ class AppHttp {
         } else {
             builder.method(upper, requestBody ?: ByteArray(0).toRequestBody(null))
         }
-        val call = client.newCall(builder.build())
-        if (callTimeoutSeconds != null) {
-            call.timeout().timeout(callTimeoutSeconds.toLong(), TimeUnit.SECONDS)
-        }
-        call.execute().use { response ->
+        timedCall(builder.build(), callTimeoutSeconds).execute().use { response ->
             if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
             val responseBody = response.body ?: throw IOException("空响应")
             val length = responseBody.contentLength()
@@ -173,6 +166,20 @@ class AppHttp {
             val cookieHeader = store.distinctBy { it.name }.joinToString("; ") { "${it.name}=${it.value}" }
             return HttpText(text, listOf(cookieHeader).filter { it.isNotBlank() })
         }
+    }
+
+    private fun timedCall(request: Request, callTimeoutSeconds: Int?): Call {
+        val caller = if (callTimeoutSeconds == null) {
+            client
+        } else {
+            val seconds = callTimeoutSeconds.toLong()
+            client.newBuilder()
+                .connectTimeout(seconds, TimeUnit.SECONDS)
+                .readTimeout(seconds, TimeUnit.SECONDS)
+                .callTimeout(seconds, TimeUnit.SECONDS)
+                .build()
+        }
+        return caller.newCall(request)
     }
 
     private fun readLimited(response: Response, maxBytes: Int, truncate: Boolean): String {
