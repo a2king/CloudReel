@@ -48,6 +48,7 @@ import com.cloudreel.tv.core.show.ShowRecord
 import com.cloudreel.tv.core.show.ShowSort
 import com.cloudreel.tv.core.show.axisGenres
 import com.cloudreel.tv.core.show.buildShelves
+import com.cloudreel.tv.core.show.filterShows
 import com.cloudreel.tv.core.show.mediaTypeLabel
 import com.cloudreel.tv.data.MediaRepository
 import com.cloudreel.tv.data.playbackFor
@@ -147,6 +148,7 @@ fun HomeScreen(navController: NavHostController) {
     val pad = if (phone) 12.dp else 24.dp
     val years = remember(state.shows) { state.shows.mapNotNull { it.year }.distinct().sortedDescending().take(8) }
     val genres = remember(state.shows) { axisGenres(state.shows.flatMap { it.genres }) }
+    val continuing = remember(state.continuing, query) { filterShows(state.continuing, query) }
 
     fun play(show: ShowRecord) {
         scope.launch {
@@ -201,8 +203,8 @@ fun HomeScreen(navController: NavHostController) {
                 )
             }
         }
-        if (state.continuing.isNotEmpty() && state.mediaType == null && state.genre == null && state.year == null) {
-            item { Shelf("继续观看", state.continuing, posterWidth, pad, viewModel::focus) { navController.openShow(it.id) } }
+        if (continuing.isNotEmpty()) {
+            item { Shelf("继续观看", continuing, posterWidth, pad, viewModel::focus) { navController.openShow(it.id) } }
         }
         if (shelves.hot.isNotEmpty()) {
             item { Shelf("热播榜", shelves.hot, posterWidth, pad, viewModel::focus) { navController.openShow(it.id) } }

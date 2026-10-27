@@ -60,6 +60,8 @@ class ShowPipelineTest {
             shows.associateBy { it.id },
         )
         assertEquals(listOf("a", "b"), ordered.map { it.id })
+        val movies = filterShows(ordered, ShowQuery(mediaType = "movie"))
+        assertEquals(listOf("a"), movies.map { it.id })
     }
 
     @Test
@@ -165,9 +167,17 @@ class ShowPipelineTest {
         )
         val request = playbackFor(session, emptySet())
         assertEquals("link-b", request?.playLinkId)
-        assertEquals("超清", request?.lines?.single()?.name)
+        assertEquals("超清", request?.lines?.first()?.name)
+        assertEquals(listOf("link-b", "link-a"), request?.playLinkIds)
         assertEquals(12_000L, request?.resumePositionMs)
         assertEquals("link-a", playbackOf(show, first, 0, 0).playLinkId)
+        val withBackup = playbackOf(show, first, 0, 0, listOf(second))
+        assertEquals(listOf("快看", "超清"), withBackup.lines.map { it.name })
+        assertEquals(listOf("link-a", "link-b"), withBackup.playLinkIds)
+        val names = withBackup.lines.map { line -> line.episodes.map { it.name } }
+        assertEquals(1 to 0, failoverCursor(names, 0, 0, live = false))
+        assertEquals(0 to 1, failoverCursor(listOf(listOf("正片", "备用")), 0, 0, live = true))
+        assertNull(failoverCursor(names, 1, 0, live = false))
     }
 
     @Test

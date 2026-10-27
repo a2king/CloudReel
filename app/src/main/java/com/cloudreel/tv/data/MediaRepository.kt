@@ -11,6 +11,7 @@ import com.cloudreel.tv.core.database.PlayHistoryEntity
 import com.cloudreel.tv.core.database.ProgressEntity
 import com.cloudreel.tv.core.database.SearchHistoryEntity
 import com.cloudreel.tv.core.database.SourceConfigEntity
+import com.cloudreel.tv.core.database.SourceEntity
 import com.cloudreel.tv.core.catalog.ResumePolicy
 import com.cloudreel.tv.core.model.AggregatedDetail
 import com.cloudreel.tv.core.model.SourceKinds
@@ -56,6 +57,7 @@ import com.cloudreel.tv.core.provider.ScriptMediaProvider
 import com.cloudreel.tv.core.show.AggregatePolicy
 import com.cloudreel.tv.core.show.RawCatalogEntry
 import com.cloudreel.tv.core.show.ShowRecord
+import com.cloudreel.tv.core.show.nextFailCount
 import com.cloudreel.tv.core.show.parseAssetEntries
 import com.cloudreel.tv.core.script.ScriptRunner
 import com.cloudreel.tv.core.security.SecretBox
@@ -347,6 +349,20 @@ class MediaRepository(
     suspend fun publishLive(page: LivePage) {
         gate()
         showCatalog.rememberLive(page) { channel -> programNow(page.programs, channel)?.title }
+        val previous = dao.sourceHealth("live:${page.id}")
+        val ok = page.channels.isNotEmpty()
+        dao.upsertSourceHealth(
+            SourceEntity(
+                id = "live:${page.id}",
+                name = page.name.ifBlank { "直播" },
+                apiUrl = "",
+                type = "live",
+                enabled = true,
+                priority = 0,
+                lastOkAt = if (ok) System.currentTimeMillis() else previous?.lastOkAt ?: 0L,
+                failCount = nextFailCount(previous?.failCount ?: 0, ok),
+            ),
+        )
     }
 
     fun observeLiveCategories(): Flow<List<com.cloudreel.tv.core.database.LiveCategoryEntity>> = dao.observeLiveCategories()

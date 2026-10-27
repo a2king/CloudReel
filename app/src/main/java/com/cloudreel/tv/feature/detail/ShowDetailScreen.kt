@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -179,7 +181,10 @@ private fun ReadyShow(
             return
         }
         if (link.episodes.isEmpty()) return
-        PlaybackRequestStore.set(playbackOf(show, link, episodeIndex, positionMs))
+        val alternates = links.filter { other ->
+            other.id != link.id && other.episodes.isNotEmpty() && (other.driveType == null || other.driveType in signedIn)
+        }
+        PlaybackRequestStore.set(playbackOf(show, link, episodeIndex, positionMs, alternates))
         context.startActivity(Intent(context, PlayerActivity::class.java))
     }
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -197,8 +202,23 @@ private fun ReadyShow(
             }
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, YingShiColors.Bg))))
             Column(modifier = Modifier.align(Alignment.BottomStart).padding(if (phone) 12.dp else 24.dp)) {
-                Text(show.title, color = YingShiColors.Text, fontSize = if (phone) 22.sp else 32.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(detailMeta(show), color = YingShiColors.Sub, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(if (phone) 12.dp else 20.dp),
+                    verticalAlignment = Alignment.Bottom,
+                ) {
+                    PosterFace(
+                        show.title,
+                        show.posterUrl,
+                        Modifier
+                            .width(if (phone) 84.dp else 140.dp)
+                            .height(if (phone) 124.dp else 200.dp),
+                    )
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(show.title, color = YingShiColors.Text, fontSize = if (phone) 22.sp else 32.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(detailMeta(show), color = YingShiColors.Sub, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                }
             }
         }
         Column(

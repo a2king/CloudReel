@@ -107,6 +107,7 @@ data class PlaybackRequest(
     val liveChannel: Boolean = false,
     val driveRefresh: DriveRefresh? = null,
     val playLinkId: String = "",
+    val playLinkIds: List<String> = emptyList(),
 )
 
 data class WatchProgress(

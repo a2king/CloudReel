@@ -286,13 +286,19 @@ fun foldCatalog(entries: List<RawCatalogEntry>, now: Long): FoldResult {
     )
 }
 
+fun matchesShow(show: ShowRecord, query: ShowQuery): Boolean {
+    return (query.mediaType == null || show.mediaType == query.mediaType) &&
+        (query.year == null || show.year == query.year) &&
+        (query.genre == null || query.genre in show.genres) &&
+        (query.minRating == null || (show.rating ?: -1.0) >= query.minRating)
+}
+
+fun filterShows(shows: List<ShowRecord>, query: ShowQuery): List<ShowRecord> {
+    return shows.filter { matchesShow(it, query) }
+}
+
 fun applyShowQuery(shows: List<ShowRecord>, query: ShowQuery): List<ShowRecord> {
-    val filtered = shows.filter { show ->
-        (query.mediaType == null || show.mediaType == query.mediaType) &&
-            (query.year == null || show.year == query.year) &&
-            (query.genre == null || query.genre in show.genres) &&
-            (query.minRating == null || (show.rating ?: -1.0) >= query.minRating)
-    }
+    val filtered = filterShows(shows, query)
     return when (query.sort) {
         ShowSort.RATING -> filtered.sortedWith(
             compareByDescending<ShowRecord> { it.rating ?: -1.0 }.thenByDescending { it.releaseDate.orEmpty() },
@@ -362,6 +368,29 @@ fun shiftChannel(channels: List<ChannelSlot>, cursor: LiveCursor, delta: Int): L
     val nextIndex = Math.floorMod(index + delta, group.size)
     val next = group[nextIndex]
     return LiveCursor(cursor.categoryId, next.id, 0)
+}
+
+/**
+ * 当前地址失败时换下一条。直播在同一线路里顺延地址；点播换下一条有地址的源，并尽量停在同名集。
+ */
+fun failoverCursor(
+    episodeNames: List<List<String>>,
+    lineIndex: Int,
+    episodeIndex: Int,
+    live: Boolean,
+): Pair<Int, Int>? {
+    if (live) {
+        val count = episodeNames.getOrNull(lineIndex)?.size ?: 0
+        val next = episodeIndex + 1
+        if (next >= count) return null
+        return lineIndex to next
+    }
+    var nextLine = lineIndex + 1
+    while (nextLine < episodeNames.size && episodeNames[nextLine].isEmpty()) nextLine += 1
+    if (nextLine >= episodeNames.size) return null
+    val failed = episodeNames.getOrNull(lineIndex)?.getOrNull(episodeIndex)
+    val matched = if (failed.isNullOrBlank()) -1 else episodeNames[nextLine].indexOf(failed)
+    return nextLine to if (matched >= 0) matched else 0
 }
 
 fun advanceLiveUrl(cursor: LiveCursor, urlCount: Int): LiveCursor? {

@@ -3,6 +3,7 @@ package com.cloudreel.tv.feature.live
 import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -221,6 +222,9 @@ fun LiveScreen(onPush: () -> Unit) {
             },
             modifier = Modifier.fillMaxSize(),
         )
+        if (phone && !overlay && !adding && channelRows.isNotEmpty()) {
+            Box(modifier = Modifier.fillMaxSize().clickable { overlay = true })
+        }
         val currentName = channelRows.firstOrNull { it.id == cursor?.channelId }
         Column(modifier = Modifier.align(Alignment.TopStart).padding(if (phone) 12.dp else 20.dp)) {
             Text(currentName?.name ?: "直播", color = Color.White, fontSize = if (phone) 18.sp else 22.sp)

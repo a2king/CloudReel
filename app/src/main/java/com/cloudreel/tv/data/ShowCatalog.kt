@@ -257,27 +257,35 @@ private fun PlayLinkEntity.toStored(): StoredLink {
     )
 }
 
-fun playbackOf(show: ShowRecord, link: StoredLink, episodeIndex: Int, positionMs: Long): PlaybackRequest {
+fun playbackOf(
+    show: ShowRecord,
+    link: StoredLink,
+    episodeIndex: Int,
+    positionMs: Long,
+    alternates: List<StoredLink> = emptyList(),
+): PlaybackRequest {
     val episodes = link.episodes
     val index = if (episodes.isEmpty()) 0 else episodeIndex.coerceIn(0, episodes.lastIndex)
+    val ordered = listOf(link) + alternates.filter { it.id != link.id && it.episodes.isNotEmpty() }
     return PlaybackRequest(
         mediaKey = show.id,
         title = show.title,
         poster = show.posterUrl,
         year = show.year?.toString(),
-        refs = listOf(SourceRef(link.sourceId, link.rawVodId)),
-        lines = listOf(
+        refs = ordered.map { SourceRef(it.sourceId, it.rawVodId) },
+        lines = ordered.map { stored ->
             PlayLine(
-                providerId = link.sourceId,
-                providerName = link.label,
-                name = link.label,
-                episodes = episodes,
-            ),
-        ),
+                providerId = stored.sourceId,
+                providerName = stored.label,
+                name = stored.label,
+                episodes = stored.episodes,
+            )
+        },
         lineIndex = 0,
         episodeIndex = index,
         resumePositionMs = positionMs,
         playLinkId = link.id,
+        playLinkIds = ordered.map { it.id },
     )
 }
 
@@ -293,5 +301,6 @@ fun playbackFor(session: ShowSession, signedIn: Set<String>): PlaybackRequest? {
     val episodeIndex = link.episodes.indexOfFirst { it.name == session.progress?.episodeKey }.let { if (it < 0) 0 else it }
     val sameEpisode = link.episodes.getOrNull(episodeIndex)?.name == session.progress?.episodeKey
     val position = if (sameEpisode) session.progress?.positionMs ?: 0L else 0L
-    return playbackOf(session.show, link, episodeIndex, position)
+    val alternates = session.links.filter { it.id != link.id && playable(it) }
+    return playbackOf(session.show, link, episodeIndex, position, alternates)
 }
