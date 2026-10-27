@@ -1,0 +1,114 @@
+{
+  "items": [
+    {
+      "id": "bbb",
+      "title": "大雄兔",
+      "poster": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/BigBuckBunny.jpg",
+      "year": "2008",
+      "area": "荷兰",
+      "genres": ["动画", "短片"],
+      "directors": ["Sacha Goedegebure"],
+      "actors": ["Blender Foundation"],
+      "description": "Blender 开源动画短片 Big Buck Bunny，用来测试直链播放。",
+      "remarks": "电影",
+      "lines": [
+        {
+          "name": "MP4 直链",
+          "episodes": [
+            {"name": "正片", "url": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sintel",
+      "title": "辛特尔",
+      "poster": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/Sintel.jpg",
+      "year": "2010",
+      "area": "荷兰",
+      "genres": ["动画", "短片"],
+      "directors": ["Colin Levy"],
+      "actors": ["Blender Foundation"],
+      "description": "Blender 开源动画短片 Sintel，两个测试片库里都有，用来看搜索合并。",
+      "remarks": "电影",
+      "lines": [
+        {
+          "name": "MP4 直链",
+          "episodes": [
+            {"name": "正片", "url": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tears",
+      "title": "钢铁之泪",
+      "poster": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/TearsOfSteel.jpg",
+      "year": "2012",
+      "area": "荷兰",
+      "genres": ["科幻", "短片"],
+      "directors": ["Ian Hubert"],
+      "actors": ["Blender Foundation"],
+      "description": "Blender 开源短片 Tears of Steel。一条是 MP4，一条是公开 HLS，用来测试两种播放格式。",
+      "remarks": "电影",
+      "lines": [
+        {
+          "name": "MP4 直链",
+          "episodes": [
+            {"name": "正片", "url": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4"}
+          ]
+        },
+        {
+          "name": "HLS",
+          "episodes": [
+            {"name": "正片", "url": "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "elephant",
+      "title": "大象的梦想",
+      "poster": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/ElephantsDream.jpg",
+      "year": "2006",
+      "area": "荷兰",
+      "genres": ["动画", "短片"],
+      "directors": ["Bassam Kurdali"],
+      "actors": ["Blender Foundation"],
+      "description": "Blender 开源短片 Elephants Dream。",
+      "remarks": "电影",
+      "lines": [
+        {
+          "name": "MP4 直链",
+          "episodes": [
+            {"name": "正片", "url": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "samples",
+      "title": "公开样片剧集",
+      "poster": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/ForBiggerBlazes.jpg",
+      "year": "2015",
+      "area": "美国",
+      "genres": ["测试"],
+      "directors": ["Google"],
+      "actors": ["样片"],
+      "description": "多集播放测试。每一集都是 Google 提供的公开样片，用来验证选集和断点续播。",
+      "remarks": "更新至5集",
+      "lines": [
+        {
+          "name": "样片线路",
+          "episodes": [
+            {"name": "第1集", "url": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"},
+            {"name": "第2集", "url": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4"},
+            {"name": "第3集", "url": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4"},
+            {"name": "第4集", "url": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4"},
+            {"name": "第5集", "url": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4"}
+          ]
+        }
+      ]
+    }
+  ]
+}

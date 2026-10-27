@@ -1,0 +1,130 @@
+{
+  "items": [
+    {
+      "id": "bbb",
+      "title": "大雄兔",
+      "poster": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/BigBuckBunny.jpg",
+      "year": "2008",
+      "area": "荷兰",
+      "genres": ["动画", "短片"],
+      "directors": ["Sacha Goedegebure"],
+      "actors": ["Blender Foundation"],
+      "description": "和大雄兔是同一部公开短片。第二条线路是故意无效的地址，用来测试切换线路。",
+      "remarks": "电影",
+      "lines": [
+        {
+          "name": "MP4 直链",
+          "episodes": [
+            {"name": "正片", "url": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"}
+          ]
+        },
+        {
+          "name": "无效线路",
+          "episodes": [
+            {"name": "正片", "url": "https://invalid.example/missing.mp4"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sintel",
+      "title": "辛特尔",
+      "poster": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/Sintel.jpg",
+      "year": "2010",
+      "area": "荷兰",
+      "genres": ["动画", "短片"],
+      "directors": ["Colin Levy"],
+      "actors": ["Blender Foundation"],
+      "description": "备用片库里的 Sintel，搜索时会和公开测试片库合并。",
+      "remarks": "电影",
+      "lines": [
+        {
+          "name": "备用直链",
+          "episodes": [
+            {"name": "正片", "url": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "elephant",
+      "title": "大象的梦想",
+      "poster": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/ElephantsDream.jpg",
+      "year": "2006",
+      "area": "荷兰",
+      "genres": ["动画", "短片"],
+      "directors": ["Bassam Kurdali"],
+      "actors": ["Blender Foundation"],
+      "description": "备用片库里的 Elephants Dream。",
+      "remarks": "电影",
+      "lines": [
+        {
+          "name": "备用直链",
+          "episodes": [
+            {"name": "正片", "url": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "subaru",
+      "title": "街头试车",
+      "poster": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/SubaruOutbackOnStreetAndDirt.jpg",
+      "year": "2012",
+      "area": "美国",
+      "genres": ["汽车"],
+      "directors": ["Google"],
+      "actors": ["样片"],
+      "description": "Google 公开样片，只在备用片库里。",
+      "remarks": "电影",
+      "lines": [
+        {
+          "name": "MP4 直链",
+          "episodes": [
+            {"name": "正片", "url": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "gti",
+      "title": "高尔夫点评",
+      "poster": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/VolkswagenGTIReview.jpg",
+      "year": "2012",
+      "area": "美国",
+      "genres": ["汽车"],
+      "directors": ["Google"],
+      "actors": ["样片"],
+      "description": "Google 公开样片。",
+      "remarks": "电影",
+      "lines": [
+        {
+          "name": "MP4 直链",
+          "episodes": [
+            {"name": "正片", "url": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/VolkswagenGTIReview.mp4"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "grand",
+      "title": "一千美元的车",
+      "poster": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/WhatCarCanYouGetForAGrand.jpg",
+      "year": "2012",
+      "area": "美国",
+      "genres": ["汽车"],
+      "directors": ["Google"],
+      "actors": ["样片"],
+      "description": "Google 公开样片 What Car Can You Get For A Grand。",
+      "remarks": "电影",
+      "lines": [
+        {
+          "name": "MP4 直链",
+          "episodes": [
+            {"name": "正片", "url": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WhatCarCanYouGetForAGrand.mp4"}
+          ]
+        }
+      ]
+    }
+  ]
+}
