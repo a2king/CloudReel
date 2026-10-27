@@ -8,8 +8,10 @@ import com.cloudreel.tv.core.database.AppDao
 import com.cloudreel.tv.core.database.FavoriteEntity
 import com.cloudreel.tv.core.database.JsonCodec
 import com.cloudreel.tv.core.database.PlayHistoryEntity
+import com.cloudreel.tv.core.database.ProgressEntity
 import com.cloudreel.tv.core.database.SearchHistoryEntity
 import com.cloudreel.tv.core.database.SourceConfigEntity
+import com.cloudreel.tv.core.database.SourceEntity
 import com.cloudreel.tv.core.catalog.ResumePolicy
 import com.cloudreel.tv.core.model.AggregatedDetail
 import com.cloudreel.tv.core.model.SourceKinds
@@ -47,10 +49,16 @@ import com.cloudreel.tv.core.model.DriveRefresh
 import com.cloudreel.tv.core.model.Episode
 import com.cloudreel.tv.core.model.LiveChannel
 import com.cloudreel.tv.core.model.LiveProgram
+import com.cloudreel.tv.core.model.SearchHit
 import com.cloudreel.tv.core.provider.CmsJsonProvider
 import com.cloudreel.tv.core.provider.JsonCatalogProvider
 import com.cloudreel.tv.core.provider.MediaProvider
 import com.cloudreel.tv.core.provider.ScriptMediaProvider
+import com.cloudreel.tv.core.show.AggregatePolicy
+import com.cloudreel.tv.core.show.RawCatalogEntry
+import com.cloudreel.tv.core.show.ShowRecord
+import com.cloudreel.tv.core.show.nextFailCount
+import com.cloudreel.tv.core.show.parseAssetEntries
 import com.cloudreel.tv.core.script.ScriptRunner
 import com.cloudreel.tv.core.security.SecretBox
 import java.io.File
@@ -83,6 +91,7 @@ class MediaRepository(
     private val runner = ScriptRunner { url, headers -> http.exchange(url, headers = headers) }
     private val clouds = CloudClient(http)
     private val importer = SubmissionImporter(context, dao, http, secretBox, runner)
+    private val showCatalog = ShowCatalog(dao) { config -> entriesFor(config) }
     private val ready = CompletableDeferred<Unit>()
 
     fun start() {
@@ -114,6 +123,41 @@ class MediaRepository(
                             ),
                         )
                     }
+                }
+                val testSource = dao.allSources().find { it.id == TEST_TVBOX_ID }
+                if (testSource == null || testSource.location != TEST_TVBOX_URL || !testSource.enabled) {
+                    if (testSource != null && testSource.location != TEST_TVBOX_URL) {
+                        lineCacheFile(TEST_TVBOX_ID).delete()
+                        lineRoleFile(TEST_TVBOX_ID).delete()
+                        liveScanFile(TEST_TVBOX_ID).delete()
+                        dao.upsertSourceHealth(
+                            SourceEntity(
+                                id = TEST_TVBOX_ID,
+                                name = "TVBox 测试源",
+                                apiUrl = TEST_TVBOX_URL,
+                                type = "site",
+                                enabled = true,
+                                priority = 1,
+                                lastOkAt = 0L,
+                                failCount = 0,
+                            ),
+                        )
+                    }
+                    dao.upsertSource(
+                        SourceConfigEntity(
+                            id = TEST_TVBOX_ID,
+                            name = "TVBox 测试源",
+                            kind = SourceKinds.TVBOX,
+                            location = TEST_TVBOX_URL,
+                            enabled = true,
+                            priority = 1,
+                            builtin = false,
+                        ),
+                    )
+                }
+                val health = dao.sourceHealth(TEST_TVBOX_ID)
+                if (health != null && health.lastOkAt == 0L && health.failCount > 0) {
+                    dao.upsertSourceHealth(health.copy(failCount = 0, enabled = true))
                 }
                 ready.complete(Unit)
             } catch (error: Throwable) {
@@ -279,6 +323,88 @@ class MediaRepository(
                 completed = ResumePolicy.isCompleted(progress.positionMs, progress.durationMs),
             ),
         )
+        val episodeKey = progress.episodeName.ifBlank { "${progress.lineIndex}:${progress.episodeIndex}" }
+        dao.upsertProgress(
+            ProgressEntity(
+                id = "prog:${progress.mediaKey}:$episodeKey",
+                showId = progress.mediaKey,
+                episodeKey = episodeKey,
+                positionMs = progress.positionMs,
+                durationMs = progress.durationMs,
+                playLinkId = progress.playLinkId,
+                updatedAt = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    fun observeShowRecords(): Flow<List<ShowRecord>> = showCatalog.observeShows()
+
+    fun observeContinueRecords(): Flow<List<ShowRecord>> = showCatalog.observeContinue()
+
+    fun observeContinueCards(): Flow<List<ContinueCard>> = showCatalog.observeContinueCards()
+
+    suspend fun refreshShows(manual: Boolean = false, onShown: suspend (Int) -> Unit = {}) {
+        gate()
+        showCatalog.refresh(manual, onShown)
+    }
+
+    suspend fun loadShowSession(showId: String): ShowSession {
+        gate()
+        return showCatalog.loadSession(showId) { sourceId, vodId ->
+            val providers = enabledProviders().associateBy { it.id }
+            val provider = providers[sourceId] ?: tvBoxProvider(sourceId) ?: return@loadSession null
+            try {
+                withTimeout(AggregatePolicy.SOURCE_TIMEOUT_MS) { provider.detail(vodId) }
+            } catch (error: TimeoutCancellationException) {
+                null
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
+
+    suspend fun materializeHits(hits: List<SearchHit>): String {
+        gate()
+        return showCatalog.materialize(hits.map { it.toRawEntry() })
+    }
+
+    suspend fun publishLive(page: LivePage) {
+        gate()
+        showCatalog.rememberLive(page) { channel -> programNow(page.programs, channel)?.title }
+        val previous = dao.sourceHealth("live:${page.id}")
+        val ok = page.channels.isNotEmpty()
+        dao.upsertSourceHealth(
+            SourceEntity(
+                id = "live:${page.id}",
+                name = page.name.ifBlank { "直播" },
+                apiUrl = "",
+                type = "live",
+                enabled = true,
+                priority = 0,
+                lastOkAt = if (ok) System.currentTimeMillis() else previous?.lastOkAt ?: 0L,
+                failCount = nextFailCount(previous?.failCount ?: 0, ok),
+            ),
+        )
+    }
+
+    fun observeLiveCategories(): Flow<List<com.cloudreel.tv.core.database.LiveCategoryEntity>> = dao.observeLiveCategories()
+
+    fun observeLiveChannels(): Flow<List<com.cloudreel.tv.core.database.LiveChannelEntity>> = dao.observeLiveChannels()
+
+    suspend fun probeLiveUrl(url: String): LiveVerdict {
+        gate()
+        return withContext(Dispatchers.IO) {
+            try {
+                val probe = http.probeHead(url)
+                liveVerdict(probe.code, probe.contentType, probe.head)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                LiveVerdict.UNKNOWN
+            }
+        }
     }
 
     suspend fun toggleFavorite(entity: FavoriteEntity, currentlyFavorite: Boolean): Boolean {
@@ -539,6 +665,59 @@ class MediaRepository(
 
     private suspend fun gate() {
         ready.await()
+    }
+
+    private suspend fun entriesFor(config: SourceConfigEntity): List<RawCatalogEntry> {
+        val acc = java.util.Collections.synchronizedList(mutableListOf<RawCatalogEntry>())
+        val tvBoxApi = if (config.kind == SourceKinds.TVBOX) {
+            try {
+                // 多仓索引要先选定采集接口。这一步有自己的时限，避免 5 秒片单超时把接口地址掐掉、缓存写不进去。
+                withTimeout(LINE_RESOLVE_TIMEOUT_MS) {
+                    withContext(Dispatchers.IO) { playableLineApi(config) }
+                }
+            } catch (error: TimeoutCancellationException) {
+                android.util.Log.w("CloudReel", "选定采集接口超时 ${config.id}")
+                return emptyList()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                android.util.Log.w("CloudReel", "选定采集接口失败 ${config.id}: ${error.javaClass.simpleName}: ${error.message}")
+                throw error
+            }
+        } else {
+            null
+        }
+        try {
+            withTimeout(AggregatePolicy.SOURCE_TIMEOUT_MS) {
+                withContext(Dispatchers.IO) {
+                    when (config.kind) {
+                        SourceKinds.ASSET -> {
+                            val text = context.assets.open(config.location).bufferedReader().use { it.readText() }
+                            parseAssetEntries(text, config.id, config.name).forEach { acc.add(it) }
+                        }
+                        SourceKinds.CMS -> CmsJsonProvider(http, config.id, config.name, config.location, config.priority)
+                            .collectCatalog { acc.add(it) }
+                        SourceKinds.TVBOX -> CmsJsonProvider(http, config.id, config.name, tvBoxApi!!, config.priority)
+                            .collectCatalog { acc.add(it) }
+                    }
+                }
+            }
+        } catch (error: TimeoutCancellationException) {
+            // 单源超时后仍回填已经拿到的条目。
+        }
+        if (tvBoxApi != null && acc.isEmpty()) {
+            try {
+                withTimeout(AggregatePolicy.SOURCE_TIMEOUT_MS) {
+                    withContext(Dispatchers.IO) {
+                        CmsJsonProvider(http, config.id, config.name, tvBoxApi, config.priority)
+                            .collectCatalog { acc.add(it) }
+                    }
+                }
+            } catch (error: TimeoutCancellationException) {
+                android.util.Log.w("CloudReel", "片单超时 ${config.id}")
+            }
+        }
+        return acc.toList()
     }
 
     private suspend fun enabledProviders(): List<MediaProvider> {
@@ -804,6 +983,10 @@ class MediaRepository(
         const val SOURCE_TIMEOUT_MS = 8_000L
         const val HOME_TIMEOUT_MS = 28_000L
         const val LIVE_CHANNEL_CAP = 600
+        const val TEST_TVBOX_ID = "gitlab_tvbox"
+        const val TEST_TVBOX_URL = "https://raw.githubusercontent.com/noimank/tvbox/main/tvboxmuti.json"
+        /** 跟进多仓索引并写入采集接口缓存的时限。片单抓取仍用 AggregatePolicy.SOURCE_TIMEOUT_MS。 */
+        const val LINE_RESOLVE_TIMEOUT_MS = 90_000L
         const val WEBDAV_BODY =
             """<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:displayname/><d:resourcetype/><d:getcontenttype/></d:prop></d:propfind>"""
     }
@@ -816,6 +999,25 @@ data class LivePage(
     val programs: List<LiveProgram>,
     val truncated: Boolean,
 )
+
+private fun SearchHit.toRawEntry(): RawCatalogEntry {
+    return RawCatalogEntry(
+        sourceId = providerId,
+        sourceName = providerName,
+        rawVodId = sourceId,
+        title = title,
+        yearText = year,
+        typeText = remarks,
+        genres = genres,
+        posterUrl = poster,
+        backdropUrl = poster,
+        overview = "",
+        rating = null,
+        releaseDate = year,
+        tmdbId = null,
+        remarks = remarks,
+    )
+}
 
 data class SearchSnapshot(
     val searching: Boolean,

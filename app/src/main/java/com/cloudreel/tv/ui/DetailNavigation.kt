@@ -10,6 +10,12 @@ import com.cloudreel.tv.core.model.MergedHit
 import com.cloudreel.tv.core.model.SearchHit
 import com.cloudreel.tv.core.model.SourceRef
 import com.cloudreel.tv.data.DetailNavStore
+import com.cloudreel.tv.data.ShowNavStore
+
+fun NavHostController.openShow(showId: String) {
+    if (showId.isBlank()) return
+    navigate("show/${ShowNavStore.put(showId)}")
+}
 
 fun NavHostController.openDetail(mediaKey: String, refs: List<SourceRef>) {
     if (refs.isEmpty()) return

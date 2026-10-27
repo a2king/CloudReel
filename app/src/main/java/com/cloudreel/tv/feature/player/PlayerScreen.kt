@@ -69,6 +69,7 @@ import com.cloudreel.tv.core.drive.recognizeCloud
 import com.cloudreel.tv.core.model.PlayLine
 import com.cloudreel.tv.core.model.PlaybackRequest
 import com.cloudreel.tv.core.model.WatchProgress
+import com.cloudreel.tv.core.show.failoverCursor
 import com.cloudreel.tv.player.PlaybackRequestStore
 import com.cloudreel.tv.ui.theme.YingShiColors
 import com.cloudreel.tv.ui.theme.YingShiTheme
@@ -176,6 +177,8 @@ fun PlayerScreen(onExit: () -> Unit) {
                     headers = episode.headers,
                     positionMs = pos,
                     durationMs = dur,
+                    playLinkId = request.playLinkIds.getOrNull(lineIndex)?.takeIf { it.isNotBlank() }
+                        ?: request.playLinkId,
                 ),
             )
         }
@@ -202,11 +205,18 @@ fun PlayerScreen(onExit: () -> Unit) {
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
-                val line = request.lines.getOrNull(cursor[0])
-                val index = cursor[1]
-                if (request.liveChannel && line != null && index < line.episodes.lastIndex) {
-                    episodeIndex = index + 1
-                    notice = "当前地址失败，已切换备用源"
+                val names = request.lines.map { line -> line.episodes.map { it.name } }
+                val next = failoverCursor(names, cursor[0], cursor[1], request.liveChannel)
+                if (next != null) {
+                    cursor[0] = next.first
+                    cursor[1] = next.second
+                    lineIndex = next.first
+                    episodeIndex = next.second
+                    notice = if (request.liveChannel) {
+                        "当前地址失败，已切换下一条"
+                    } else {
+                        "当前地址失败，已切换${request.lines[next.first].name}"
+                    }
                     errorText = null
                     errorDetail = null
                 } else {

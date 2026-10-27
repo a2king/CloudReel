@@ -2,6 +2,7 @@ package com.cloudreel.tv.data
 
 import android.content.Context
 import android.util.Base64
+import com.cloudreel.tv.core.catalog.cmsListHasPoster
 import com.cloudreel.tv.core.catalog.cmsProbeUrl
 import com.cloudreel.tv.core.catalog.isCmsSite
 import com.cloudreel.tv.core.catalog.isScriptAsset
@@ -11,6 +12,7 @@ import com.cloudreel.tv.core.catalog.hasScrapeableCms
 import com.cloudreel.tv.core.catalog.parseTvBoxDocument
 import com.cloudreel.tv.core.catalog.resolveTvBoxUrl
 import com.cloudreel.tv.core.catalog.TvBoxLive
+import com.cloudreel.tv.core.catalog.TvBoxRemoteSource
 import com.cloudreel.tv.core.database.AppDao
 import com.cloudreel.tv.core.database.DriveAccountEntity
 import com.cloudreel.tv.core.database.LivePlaylistEntity
@@ -27,10 +29,15 @@ import com.cloudreel.tv.core.security.SecretBox
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 
@@ -244,7 +251,7 @@ class SubmissionImporter(
     }
 
     internal suspend fun firstPlayableCms(configUrl: String): String {
-        val text = http.getConfig(configUrl)
+        val text = http.getConfig(configUrl, LINE_FETCH_TIMEOUT_SECONDS)
         val document = parseTvBoxDocument(text)
         val direct = configUrl.trimEnd('/')
         if (document.isCmsResponse && document.sites.none { isCmsSite(it) } && document.remoteSources.isEmpty()) {
@@ -257,19 +264,89 @@ class SubmissionImporter(
             if (isScriptAsset(api)) null else api.trimEnd('/')
         }.distinct().take(16)
         if (apis.isEmpty()) {
-            throw IllegalStateException(
-                if (document.remoteSources.isNotEmpty()) {
-                    "这条线路下面还有多份配置，暂时不能直接播放"
-                } else {
-                    "这条线路是脚本仓，没有采集接口，首页不能直接刮削"
-                },
-            )
+            if (document.remoteSources.isNotEmpty()) {
+                return firstCmsInIndex(configUrl, document.remoteSources)
+            }
+            throw IllegalStateException("这条线路是脚本仓，没有采集接口，首页不能直接刮削")
         }
         val usable = keepUsableSources(apis.map { DiscoveredCmsSource("", it) }) { }
             .map { it.url.trimEnd('/') }
             .toSet()
         return apis.firstOrNull { it in usable }
             ?: throw IllegalStateException("这条线路里的采集接口都没有返回片单")
+    }
+
+    /**
+     * 多仓索引本身不是片单。并行看一层子配置，优先用带海报的采集接口，不执行远程脚本。
+     */
+    private suspend fun firstCmsInIndex(base: String, remotes: List<TvBoxRemoteSource>): String = coroutineScope {
+        val children = remotes.mapNotNull { remote ->
+            resolveTvBoxUrl(base, remote.url)?.trim()?.trimEnd('/')
+        }.distinct().take(INDEX_CHILD_LIMIT)
+        if (children.isEmpty()) {
+            throw IllegalStateException("这条线路下面还有多份配置，暂时不能直接播放")
+        }
+        val withArt = CompletableDeferred<String>()
+        val plain = AtomicReference<String?>(null)
+        val gate = Semaphore(INDEX_CHILD_PARALLELISM)
+        val jobs = children.map { child ->
+            async {
+                gate.withPermit {
+                    val picked = try {
+                        cmsApiFromConfig(child)
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                        null
+                    } ?: return@withPermit
+                    if (picked.second) withArt.complete(picked.first) else plain.compareAndSet(null, picked.first)
+                }
+            }
+        }
+        val watcher = launch {
+            jobs.joinAll()
+            val backup = plain.get()
+            if (backup != null) withArt.complete(backup)
+            else withArt.completeExceptionally(IllegalStateException("这条线路里的采集接口都没有返回片单"))
+        }
+        try {
+            withArt.await()
+        } finally {
+            watcher.cancel()
+            coroutineContext.cancelChildren()
+        }
+    }
+
+    private suspend fun cmsApiFromConfig(configUrl: String): Pair<String, Boolean>? {
+        val text = http.getConfig(configUrl, INDEX_PROBE_TIMEOUT_SECONDS)
+        val document = try {
+            parseTvBoxDocument(text)
+        } catch (_: Exception) {
+            return null
+        }
+        val apis = document.sites.mapNotNull { site ->
+            if (!isCmsSite(site)) return@mapNotNull null
+            val api = resolveTvBoxUrl(configUrl, site.api) ?: return@mapNotNull null
+            if (isScriptAsset(api)) null else api.trimEnd('/')
+        }.distinct().take(INDEX_API_LIMIT)
+        var fallback: String? = null
+        for (api in apis) {
+            val listed = try {
+                http.exchange(
+                    cmsProbeUrl(api, "list"),
+                    maxBytes = PROBE_MAX_BYTES,
+                    callTimeoutSeconds = INDEX_PROBE_TIMEOUT_SECONDS,
+                    truncate = true,
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                continue
+            }
+            if (cmsListHasPoster(listed)) return api to true
+            if (fallback == null && isUsableCmsPayload(listed)) fallback = api
+        }
+        return fallback?.let { it to false }
     }
 
     private suspend fun saveLines(existing: List<SourceConfigEntity>, discovered: Discovery): String {
@@ -493,19 +570,24 @@ class SubmissionImporter(
         const val PROBE_PARALLELISM = 6
         const val PROBE_TIMEOUT_SECONDS = 8
         const val PROBE_MAX_BYTES = 800_000
+        const val INDEX_CHILD_LIMIT = 8
+        const val INDEX_CHILD_PARALLELISM = 8
+        const val INDEX_API_LIMIT = 4
+        const val INDEX_PROBE_TIMEOUT_SECONDS = 15
+        const val LINE_FETCH_TIMEOUT_SECONDS = 40
     }
 }
 
-private suspend fun AppHttp.getConfig(url: String): String {
-    val first = readConfig(url, null)
+private suspend fun AppHttp.getConfig(url: String, timeoutSeconds: Int? = null): String {
+    val first = readConfig(url, null, timeoutSeconds)
     if (!isHtmlDocument(first)) return first
-    return readConfig(url, "okhttp/3.15")
+    return readConfig(url, "okhttp/3.15", timeoutSeconds)
 }
 
-private suspend fun AppHttp.readConfig(url: String, userAgent: String?): String {
+private suspend fun AppHttp.readConfig(url: String, userAgent: String?, timeoutSeconds: Int? = null): String {
     val headers = if (userAgent.isNullOrBlank()) emptyMap() else mapOf("User-Agent" to userAgent)
     val bytes = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-        exchangeBytes(url, headers = headers, maxBytes = 4_000_000)
+        exchangeBytes(url, headers = headers, maxBytes = 4_000_000, callTimeoutSeconds = timeoutSeconds)
     }
     return com.cloudreel.tv.core.catalog.configText(bytes)
 }

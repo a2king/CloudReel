@@ -171,6 +171,25 @@ fun isUsableCmsPayload(text: String): Boolean {
     return false
 }
 
+fun cmsListHasPoster(text: String): Boolean {
+    val trimmed = text.trim().removePrefix("\uFEFF")
+    if (trimmed.isEmpty()) return false
+    val root = try {
+        JSONObject(trimmed)
+    } catch (_: Exception) {
+        return false
+    }
+    val list = root.optJSONArray("list")
+        ?: root.optJSONObject("data")?.optJSONArray("list")
+        ?: return false
+    for (index in 0 until list.length()) {
+        val item = list.optJSONObject(index) ?: continue
+        val pic = item.optString("vod_pic").trim()
+        if (pic.startsWith("http://") || pic.startsWith("https://")) return true
+    }
+    return false
+}
+
 private fun hasCmsEntryMarker(text: String): Boolean {
     return text.contains("\"vod_name\"") || text.contains("\"vod_id\"")
 }

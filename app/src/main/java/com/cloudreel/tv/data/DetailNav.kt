@@ -15,3 +15,15 @@ object DetailNavStore {
 
     fun get(token: String): DetailRequest? = requests[token]
 }
+
+object ShowNavStore {
+    private val shows = ConcurrentHashMap<String, String>()
+
+    fun put(showId: String): String {
+        val token = UUID.randomUUID().toString().replace("-", "").take(12)
+        shows[token] = showId
+        return token
+    }
+
+    fun get(token: String): String? = shows[token]
+}

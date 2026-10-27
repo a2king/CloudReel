@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -34,14 +35,15 @@ import com.cloudreel.tv.ui.Tab
 import androidx.tv.material3.Text
 import com.cloudreel.tv.core.catalog.mergeHits
 import com.cloudreel.tv.core.catalog.readableError
+import com.cloudreel.tv.core.show.axisGenres
 import com.cloudreel.tv.core.model.MergedHit
 import com.cloudreel.tv.core.model.SearchHit
 import com.cloudreel.tv.data.MediaRepository
 import com.cloudreel.tv.ui.LocalContainer
 import com.cloudreel.tv.ui.PosterCard
 import com.cloudreel.tv.ui.TvTextField
-import com.cloudreel.tv.ui.openHit
-import com.cloudreel.tv.ui.openMerged
+import com.cloudreel.tv.ui.isPhoneLayout
+import com.cloudreel.tv.ui.openShow
 import com.cloudreel.tv.ui.theme.YingShiColors
 import com.cloudreel.tv.ui.viewModelFactory
 import kotlinx.coroutines.CancellationException
@@ -120,13 +122,26 @@ fun SearchScreen(navController: NavHostController) {
     var query by rememberSaveable { mutableStateOf("") }
     var mergedView by rememberSaveable { mutableStateOf(true) }
     var genre by rememberSaveable { mutableStateOf<String?>(null) }
-    val genres = state.merged.flatMap { it.genres }.distinct().take(10)
-    val shownMerged = state.merged.filter { genre == null || genre in it.genres }
-    val shownFlat = state.flat.filter { genre == null || genre in it.genres }
+    val phone = isPhoneLayout()
+    val scope = rememberCoroutineScope()
+    val genres = axisGenres(state.merged.flatMap { it.genres }).take(12)
+    val shownMerged = state.merged.filter { genre == null || genre in axisGenres(it.genres) }
+    val shownFlat = state.flat.filter { genre == null || genre in axisGenres(it.genres) }
+    fun openHits(hits: List<SearchHit>) {
+        if (hits.isEmpty()) return
+        scope.launch {
+            try {
+                navController.openShow(repository.materializeHits(hits))
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+            }
+        }
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(28.dp),
+            .padding(if (phone) 12.dp else 28.dp),
     ) {
         Text("搜索", fontSize = 28.sp, color = YingShiColors.Text)
         Row(
@@ -190,7 +205,7 @@ fun SearchScreen(navController: NavHostController) {
             Text("没有找到相符的内容", color = YingShiColors.Sub, modifier = Modifier.padding(top = 16.dp))
         }
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(180.dp),
+            columns = GridCells.Adaptive(if (phone) 112.dp else 168.dp),
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
@@ -204,8 +219,8 @@ fun SearchScreen(navController: NavHostController) {
                     PosterCard(
                         title = hit.title,
                         poster = hit.poster,
-                        subtitle = listOfNotNull(hit.year, "${hit.hits.size} 个源").joinToString(" · "),
-                        onClick = { navController.openMerged(hit) },
+                        subtitle = listOfNotNull(hit.year, hit.genres.firstOrNull()).joinToString(" · "),
+                        onClick = { openHits(hit.hits) },
                     )
                 }
             } else {
@@ -213,8 +228,8 @@ fun SearchScreen(navController: NavHostController) {
                     PosterCard(
                         title = hit.title,
                         poster = hit.poster,
-                        subtitle = listOfNotNull(hit.providerName, hit.year).joinToString(" · "),
-                        onClick = { navController.openHit(hit) },
+                        subtitle = listOfNotNull(hit.year, hit.remarks).joinToString(" · "),
+                        onClick = { openHits(listOf(hit)) },
                     )
                 }
             }

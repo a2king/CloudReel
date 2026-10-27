@@ -1,395 +1,669 @@
 package com.cloudreel.tv.feature.home
 
+import android.os.Build
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
+import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
-import com.cloudreel.tv.AppPrefs
-import com.cloudreel.tv.core.catalog.HomeShelf
+import coil.compose.AsyncImage
 import com.cloudreel.tv.core.catalog.readableError
-import com.cloudreel.tv.core.database.PlayHistoryEntity
-import com.cloudreel.tv.core.database.SourceConfigEntity
-import com.cloudreel.tv.core.model.MediaCard
-import com.cloudreel.tv.core.model.SourceKinds
+import com.cloudreel.tv.core.show.ShowQuery
+import com.cloudreel.tv.core.show.ShowRecord
+import com.cloudreel.tv.core.show.ShowSort
+import com.cloudreel.tv.core.show.axisGenres
+import com.cloudreel.tv.core.show.buildShelves
+import com.cloudreel.tv.core.show.matchesShow
+import com.cloudreel.tv.core.show.mediaTypeLabel
+import com.cloudreel.tv.data.ContinueCard
 import com.cloudreel.tv.data.MediaRepository
+import com.cloudreel.tv.data.playbackFor
 import com.cloudreel.tv.ui.Button
 import com.cloudreel.tv.ui.LocalContainer
 import com.cloudreel.tv.ui.OutlinedButton
-import com.cloudreel.tv.ui.PosterCard
-import com.cloudreel.tv.ui.SectionTitle
-import com.cloudreel.tv.ui.openCard
-import com.cloudreel.tv.ui.openHistory
+import com.cloudreel.tv.ui.PosterFace
+import com.cloudreel.tv.ui.focusAmount
+import com.cloudreel.tv.ui.isPhoneLayout
+import com.cloudreel.tv.ui.openShow
+import com.cloudreel.tv.ui.startPlayback
 import com.cloudreel.tv.ui.theme.YingShiColors
 import com.cloudreel.tv.ui.viewModelFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 
-data class HomeSourceOption(
-    val id: String,
-    val name: String,
-)
+private enum class FilterAxis { TYPE, YEAR, GENRE }
 
 data class HomeUiState(
     val loading: Boolean = true,
-    val recent: List<PlayHistoryEntity> = emptyList(),
-    val cards: List<MediaCard> = emptyList(),
-    val notice: String? = null,
+    val syncing: Boolean = false,
+    val shows: List<ShowRecord> = emptyList(),
+    val continuing: List<ContinueCard> = emptyList(),
+    val mediaType: String? = null,
+    val genre: String? = null,
+    val year: Int? = null,
+    val sort: ShowSort = ShowSort.RELEASE_DATE,
+    val focusedId: String? = null,
     val error: String? = null,
-    val shelf: HomeShelf = HomeShelf.HOT_DRAMA,
-    val sources: List<HomeSourceOption> = emptyList(),
-    val sourceId: String? = null,
-    val sourceName: String = "",
-    val pickingSource: Boolean = false,
-    val filteringLines: Boolean = false,
 )
 
 class HomeViewModel(
     private val repository: MediaRepository,
-    private val prefs: AppPrefs,
 ) : ViewModel() {
     private val _state = MutableStateFlow(HomeUiState())
     val state = _state.asStateFlow()
-    private var loadJob: Job? = null
-    private var loadGeneration = 0
-    private var classifyJob: Job? = null
-    private var classifyGeneration = 0
-    private var latestSources: List<SourceConfigEntity> = emptyList()
-    private val scrapeableLineIds = mutableSetOf<String>()
-    private val blockedLineIds = mutableSetOf<String>()
-    private var filteringLines = false
+    private var refreshJob: Job? = null
 
     init {
         viewModelScope.launch {
-            repository.observeHistory().collect { recent ->
-                _state.update { it.copy(recent = recent) }
+            repository.observeShowRecords().collect { shows ->
+                _state.update { it.copy(shows = shows, loading = false) }
             }
         }
         viewModelScope.launch {
-            repository.observeSources().collect { sources -> applySources(sources) }
+            repository.observeContinueCards().collect { rows ->
+                _state.update { it.copy(continuing = rows) }
+            }
         }
+        refresh()
     }
 
-    fun refresh() = load(force = true)
-
-    private fun load(force: Boolean) {
-        val sourceId = _state.value.sourceId
-        val shelf = _state.value.shelf
-        if (sourceId.isNullOrBlank()) {
-            loadJob?.cancel()
-            _state.update { it.copy(loading = false, cards = emptyList(), error = null, notice = null) }
-            return
-        }
-        val generation = ++loadGeneration
-        loadJob?.cancel()
-        loadJob = viewModelScope.launch {
-            _state.update { it.copy(loading = true, error = null, notice = null, cards = emptyList()) }
+    fun refresh(manual: Boolean = false) {
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch {
+            _state.update { it.copy(syncing = true, error = null) }
             try {
-                val page = repository.loadHomeShelf(sourceId, shelf, force)
-                if (generation != loadGeneration) return@launch
-                _state.update { it.copy(loading = false, cards = page.cards, notice = page.notice) }
+                repository.refreshShows(manual = manual)
+                _state.update { it.copy(syncing = false, loading = false) }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                if (generation != loadGeneration) return@launch
-                _state.update { it.copy(loading = false, error = readableError(error)) }
+                _state.update { it.copy(syncing = false, loading = false, error = readableError(error)) }
             }
         }
     }
 
-    fun selectShelf(shelf: HomeShelf) {
-        if (_state.value.shelf == shelf) return
-        _state.update { it.copy(shelf = shelf) }
-        load(force = false)
-    }
+    fun setType(type: String?) = _state.update { it.copy(mediaType = type) }
 
-    fun toggleSourcePicker() {
-        _state.update { it.copy(pickingSource = !it.pickingSource) }
-    }
+    fun setGenre(genre: String?) = _state.update { it.copy(genre = genre) }
 
-    fun selectSource(id: String) {
-        val source = _state.value.sources.firstOrNull { it.id == id } ?: return
-        prefs.setHomeSourceId(id)
-        _state.update { it.copy(sourceId = id, sourceName = source.name, pickingSource = false) }
-        load(force = false)
-    }
+    fun setYear(year: Int?) = _state.update { it.copy(year = year) }
 
-    private fun applySources(sources: List<SourceConfigEntity>) {
-        latestSources = sources
-        classifyLines(sources)
-    }
+    fun setSort(sort: ShowSort) = _state.update { it.copy(sort = sort) }
 
-    private fun classifyLines(sources: List<SourceConfigEntity>) {
-        val generation = ++classifyGeneration
-        classifyJob?.cancel()
-        val lines = sources.filter { it.enabled && it.kind == SourceKinds.TVBOX }
-        classifyJob = viewModelScope.launch {
-            val pending = mutableListOf<SourceConfigEntity>()
-            lines.forEach { line ->
-                when (repository.cachedLineRole(line.id)) {
-                    "cms" -> scrapeableLineIds += line.id
-                    "skip" -> blockedLineIds += line.id
-                    else -> pending += line
-                }
-            }
-            filteringLines = pending.isNotEmpty()
-            publishSources()
-            if (pending.isEmpty() || generation != classifyGeneration) return@launch
-            val gate = Semaphore(4)
-            try {
-                coroutineScope {
-                    pending.map { line ->
-                        async {
-                            val role = try {
-                                gate.withPermit { repository.classifyLine(line.id, line.location) }
-                            } catch (error: CancellationException) {
-                                throw error
-                            } catch (_: Exception) {
-                                null
-                            }
-                            if (generation != classifyGeneration) return@async
-                            when (role) {
-                                "cms" -> scrapeableLineIds += line.id
-                                "skip" -> blockedLineIds += line.id
-                            }
-                            if (role != null) publishSources()
-                        }
-                    }.awaitAll()
-                }
-            } finally {
-                if (generation == classifyGeneration) {
-                    filteringLines = false
-                    publishSources()
-                }
-            }
-        }
-    }
-
-    private fun publishSources() {
-        val enabled = latestSources.filter { it.enabled }
-        val saved = prefs.homeSourceId()
-        val holdId = _state.value.sourceId ?: saved
-        val visible = enabled.filter { source ->
-            when (source.kind) {
-                SourceKinds.TVBOX -> source.id in scrapeableLineIds || (source.id == holdId && source.id !in blockedLineIds)
-                SourceKinds.SCRIPT, SourceKinds.DRIVE -> false
-                else -> true
-            }
-        }.sortedWith(compareBy<SourceConfigEntity> { sourceRank(it.kind) }.thenBy { it.priority })
-        val pending = enabled.any { it.kind == SourceKinds.TVBOX && it.id !in scrapeableLineIds && it.id !in blockedLineIds }
-        if (visible.isEmpty()) {
-            if (pending) {
-                _state.update { it.copy(filteringLines = true) }
-                return
-            }
-            loadJob?.cancel()
-            _state.update {
-                it.copy(
-                    loading = false,
-                    sources = emptyList(),
-                    sourceId = null,
-                    sourceName = "",
-                    cards = emptyList(),
-                    notice = null,
-                    error = null,
-                    pickingSource = false,
-                    filteringLines = false,
-                )
-            }
-            return
-        }
-        val options = visible.map { HomeSourceOption(it.id, it.name) }
-        val previousId = _state.value.sourceId
-        val chosen = visible.firstOrNull { it.id == previousId }
-            ?: visible.firstOrNull { it.id == saved && it.id !in blockedLineIds }
-            ?: visible.firstOrNull { it.kind == SourceKinds.TVBOX }
-            ?: visible.firstOrNull { it.kind == SourceKinds.CMS }
-            ?: visible.first()
-        val changed = chosen.id != previousId
-        val cardsEmpty = _state.value.cards.isEmpty() && !_state.value.loading
-        _state.update {
-            it.copy(
-                sources = options,
-                sourceId = chosen.id,
-                sourceName = chosen.name,
-                filteringLines = filteringLines,
-            )
-        }
-        if (changed) prefs.setHomeSourceId(chosen.id)
-        if (changed || cardsEmpty) load(force = false)
-    }
-}
-
-private fun sourceRank(kind: String): Int = when (kind) {
-    SourceKinds.TVBOX -> 0
-    SourceKinds.CMS -> 1
-    else -> 2
+    fun focus(id: String) = _state.update { it.copy(focusedId = id) }
 }
 
 @Composable
 fun HomeScreen(navController: NavHostController) {
     val container = LocalContainer.current
-    val viewModel: HomeViewModel = viewModel(factory = viewModelFactory {
-        HomeViewModel(container.repository, container.prefs)
-    })
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val phone = isPhoneLayout()
+    val viewModel: HomeViewModel = viewModel(factory = viewModelFactory { HomeViewModel(container.repository) })
     val state by viewModel.state.collectAsStateWithLifecycle()
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(176.dp),
+    val query = ShowQuery(state.mediaType, state.genre, state.year, sort = state.sort)
+    val shelves = remember(state.shows, query) { buildShelves(state.shows, query) }
+    val continuing = remember(state.continuing, query) { state.continuing.filter { matchesShow(it.show, query) } }
+    val hero = state.shows.firstOrNull { it.id == state.focusedId }
+        ?: shelves.hot.firstOrNull()
+        ?: continuing.firstOrNull()?.show
+        ?: state.shows.firstOrNull()
+    val posterWidth = if (phone) 118.dp else 156.dp
+    val pad = if (phone) 12.dp else 24.dp
+    val years = remember(state.shows) { state.shows.mapNotNull { it.year }.distinct().sortedDescending().take(8) }
+    val genres = remember(state.shows) { axisGenres(state.shows.flatMap { it.genres }) }
+
+    fun play(show: ShowRecord) {
+        scope.launch {
+            try {
+                val session = container.repository.loadShowSession(show.id)
+                val signedIn = setOf("115", "quark", "ali", "baidu").filter { container.cloudSecret(it).isNotBlank() }.toSet()
+                val request = playbackFor(session, signedIn)
+                if (request == null) navController.openShow(show.id) else context.startPlayback(request)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                navController.openShow(show.id)
+            }
+        }
+    }
+
+    LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(28.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(bottom = if (phone) 16.dp else 28.dp),
+        verticalArrangement = Arrangement.spacedBy(if (phone) 10.dp else 16.dp),
     ) {
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(state.shelf.label, fontSize = 28.sp, color = YingShiColors.Text)
-                    Text(
-                        state.sourceName.ifBlank { "还没有启用的线路" },
-                        color = YingShiColors.Sub,
-                        fontSize = 14.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                }
-                OutlinedButton(
-                    onClick = viewModel::toggleSourcePicker,
-                    modifier = Modifier.widthIn(max = 360.dp),
-                    enabled = state.sources.isNotEmpty() || state.filteringLines,
+        item {
+            TopBar(
+                phone = phone,
+                syncing = state.syncing,
+                pad = pad,
+                onSearch = { navController.navigate("search") { launchSingleTop = true } },
+                onAccount = { navController.navigate(if (phone) "mine" else "setting") { launchSingleTop = true } },
+            )
+        }
+        item {
+            hero?.let { HeroCard(it, phone, pad, onPlay = { play(it) }) }
+        }
+        item {
+            Column(modifier = Modifier.padding(horizontal = pad), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                state.error?.let { Text(it, color = YingShiColors.Error, fontSize = 13.sp) }
+                FilterBar(
+                    phone = phone,
+                    mediaType = state.mediaType,
+                    year = state.year,
+                    genre = state.genre,
+                    sort = state.sort,
+                    years = years,
+                    genres = genres,
+                    onType = viewModel::setType,
+                    onYear = viewModel::setYear,
+                    onGenre = viewModel::setGenre,
+                    onSort = viewModel::setSort,
+                )
+            }
+        }
+        if (continuing.isNotEmpty()) {
+            item {
+                Shelf(
+                    title = "继续观看",
+                    pad = pad,
+                    onMore = { navController.navigate("history") { launchSingleTop = true } },
                 ) {
-                    Text(
-                        if (state.pickingSource) "收起线路" else "线路 · ${state.sourceName.ifBlank { "未选择" }}",
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Button(onClick = viewModel::refresh, enabled = !state.loading && state.sourceId != null) {
-                    Text(if (state.loading) "刷新中" else "刷新")
-                }
-            }
-        }
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(HomeShelf.entries, key = { it.name }) { shelf ->
-                    if (shelf == state.shelf) {
-                        Button(onClick = { viewModel.selectShelf(shelf) }) { Text(shelf.label) }
-                    } else {
-                        OutlinedButton(onClick = { viewModel.selectShelf(shelf) }) { Text(shelf.label) }
-                    }
-                }
-            }
-        }
-        if (state.pickingSource) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (state.filteringLines) {
-                        Text("正在排除脚本仓，只保留能刮削的线路", color = YingShiColors.Sub, fontSize = 14.sp)
-                    }
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(state.sources, key = { it.id }) { source ->
-                            if (source.id == state.sourceId) {
-                                Button(onClick = { viewModel.selectSource(source.id) }) { Text(source.name) }
-                            } else {
-                                OutlinedButton(onClick = { viewModel.selectSource(source.id) }) { Text(source.name) }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if (state.recent.isNotEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) { SectionTitle("最近播放") }
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    items(state.recent, key = { it.mediaKey }) { item ->
-                        PosterCard(
-                            title = item.title,
-                            poster = item.poster,
-                            subtitle = historySubtitle(item),
-                            onClick = { navController.openHistory(item) },
-                            modifier = Modifier.width(176.dp),
+                    items(continuing, key = { it.show.id }) { card ->
+                        ContinuePoster(
+                            card = card,
+                            phone = phone,
+                            onFocus = { viewModel.focus(card.show.id) },
+                            onClick = { navController.openShow(card.show.id) },
                         )
                     }
                 }
             }
         }
-        if (state.loading && state.cards.isEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Text("正在加载当前线路…", color = YingShiColors.Sub)
+        if (shelves.hot.isNotEmpty()) {
+            item {
+                PosterShelf("热播榜", shelves.hot, posterWidth, pad, viewModel::focus, { navController.openShow(it.id) }) {
+                    viewModel.setSort(ShowSort.RATING)
+                }
             }
         }
-        state.error?.let { message ->
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Text(message, color = YingShiColors.Error)
+        if (shelves.movies.isNotEmpty()) {
+            item {
+                PosterShelf("电影", shelves.movies, posterWidth, pad, viewModel::focus, { navController.openShow(it.id) }) {
+                    viewModel.setType("movie")
+                }
             }
         }
-        state.notice?.let { message ->
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Text(message, color = YingShiColors.Sub)
+        if (shelves.series.isNotEmpty()) {
+            item {
+                PosterShelf("电视剧", shelves.series, posterWidth, pad, viewModel::focus, { navController.openShow(it.id) }) {
+                    viewModel.setType("tv")
+                }
             }
         }
-        if (!state.loading && state.sources.isEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Text("没有启用的数据源。到左侧「数据源」打开测试片库，或添加 CMS 接口。", color = YingShiColors.Sub)
-            }
-        } else if (!state.loading && state.error == null && state.cards.isEmpty() && state.sourceId != null) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Text("这个分类没有内容", color = YingShiColors.Sub)
+        if (shelves.variety.isNotEmpty()) {
+            item {
+                PosterShelf("综艺", shelves.variety, posterWidth, pad, viewModel::focus, { navController.openShow(it.id) }) {
+                    viewModel.setType("variety")
+                }
             }
         }
-        itemsIndexed(state.cards, key = { index, card -> "${card.providerId}:${card.sourceId}:$index" }) { _, card ->
-            PosterCard(
-                title = card.title,
-                poster = card.poster,
-                subtitle = cardSubtitle(card),
-                onClick = { navController.openCard(card) },
-                modifier = Modifier.fillMaxWidth(),
-            )
+        if (shelves.docs.isNotEmpty()) {
+            item {
+                PosterShelf("纪录", shelves.docs, posterWidth, pad, viewModel::focus, { navController.openShow(it.id) }) {
+                    viewModel.setType("doc")
+                }
+            }
+        }
+        if (shelves.anime.isNotEmpty()) {
+            item {
+                PosterShelf("动漫", shelves.anime, posterWidth, pad, viewModel::focus, { navController.openShow(it.id) }) {
+                    viewModel.setType("anime")
+                }
+            }
+        }
+        if (!state.loading && !state.syncing && state.shows.isEmpty()) {
+            item {
+                Text(
+                    "片单还是空的。内置公开测试片会先出现在这里。",
+                    color = YingShiColors.Sub,
+                    modifier = Modifier.padding(horizontal = pad),
+                )
+            }
+        }
+        item {
+            Box(modifier = Modifier.padding(horizontal = pad)) {
+                OutlinedButton(onClick = { viewModel.refresh(manual = true) }, enabled = !state.syncing) {
+                    Text(if (state.syncing) "更新中" else "刷新片单")
+                }
+            }
         }
     }
 }
 
-private fun cardSubtitle(card: MediaCard): String {
-    return listOfNotNull(card.year, card.area, card.remarks).joinToString(" · ").ifBlank { card.providerName }
+@Composable
+private fun TopBar(phone: Boolean, syncing: Boolean, pad: Dp, onSearch: () -> Unit, onAccount: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = pad, vertical = if (phone) 4.dp else 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(if (phone) "视频" else "映视", color = YingShiColors.Text, fontSize = if (phone) 22.sp else 20.sp)
+        if (syncing) Text("更新中", color = YingShiColors.Sub, fontSize = 12.sp)
+        Box(Modifier.weight(1f))
+        OutlinedButton(onClick = onSearch) { Icon(Icons.Filled.Search, contentDescription = "搜索") }
+        OutlinedButton(onClick = onAccount) { Icon(Icons.Filled.Settings, contentDescription = if (phone) "我的" else "设置") }
+    }
 }
 
-private fun historySubtitle(item: PlayHistoryEntity): String {
-    val progress = if (item.durationMs > 0) "${item.positionMs * 100 / item.durationMs}%" else ""
-    return listOf(item.episodeName, progress).filter { it.isNotBlank() }.joinToString(" · ")
+@Composable
+private fun FilterBar(
+    phone: Boolean,
+    mediaType: String?,
+    year: Int?,
+    genre: String?,
+    sort: ShowSort,
+    years: List<Int>,
+    genres: List<String>,
+    onType: (String?) -> Unit,
+    onYear: (Int?) -> Unit,
+    onGenre: (String?) -> Unit,
+    onSort: (ShowSort) -> Unit,
+) {
+    var expanded by remember { mutableStateOf<FilterAxis?>(null) }
+    if (phone) {
+        ChipRow(
+            listOf(null to "全部", "movie" to "电影", "tv" to "剧集", "variety" to "综艺", "doc" to "纪录", "anime" to "动漫"),
+            selected = mediaType,
+            onSelect = onType,
+        )
+    }
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (!phone) {
+            item {
+                SummaryChip(typeLabel(mediaType), expanded == FilterAxis.TYPE) {
+                    expanded = if (expanded == FilterAxis.TYPE) null else FilterAxis.TYPE
+                }
+            }
+        }
+        item {
+            SummaryChip(year?.toString() ?: "全部年份", expanded == FilterAxis.YEAR) {
+                expanded = if (expanded == FilterAxis.YEAR) null else FilterAxis.YEAR
+            }
+        }
+        item {
+            SummaryChip(genre ?: "影片类型", expanded == FilterAxis.GENRE) {
+                expanded = if (expanded == FilterAxis.GENRE) null else FilterAxis.GENRE
+            }
+        }
+        item {
+            SummaryChip(if (sort == ShowSort.RATING) "按评分" else "按发行日", selected = false, caret = false) {
+                onSort(if (sort == ShowSort.RATING) ShowSort.RELEASE_DATE else ShowSort.RATING)
+            }
+        }
+    }
+    when (expanded) {
+        FilterAxis.TYPE -> ChipRow(
+            listOf(null to "全部类型", "movie" to "电影", "tv" to "剧集", "variety" to "综艺", "doc" to "纪录", "anime" to "动漫"),
+            selected = mediaType,
+            onSelect = {
+                onType(it)
+                expanded = null
+            },
+        )
+        FilterAxis.YEAR -> if (years.isNotEmpty()) {
+            ChipRow(
+                listOf(null to "全部年份") + years.map { it to it.toString() },
+                selected = year,
+                onSelect = {
+                    onYear(it)
+                    expanded = null
+                },
+            )
+        }
+        FilterAxis.GENRE -> if (genres.isNotEmpty()) {
+            ChipRow(
+                listOf(null to "全部类型") + genres.map { it to it },
+                selected = genre,
+                onSelect = {
+                    onGenre(it)
+                    expanded = null
+                },
+            )
+        }
+        null -> Unit
+    }
+}
+
+@Composable
+private fun SummaryChip(label: String, selected: Boolean, caret: Boolean = true, onClick: () -> Unit) {
+    val click = onClick
+    if (selected) {
+        Button(onClick = click) { ChipLabel(label, caret) }
+    } else {
+        OutlinedButton(onClick = click) { ChipLabel(label, caret) }
+    }
+}
+
+@Composable
+private fun ChipLabel(label: String, caret: Boolean) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, maxLines = 1)
+        if (caret) Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null)
+    }
+}
+
+@Composable
+private fun <T> ChipRow(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(options, key = { it.second }) { (value, label) ->
+            if (value == selected) {
+                Button(onClick = { onSelect(value) }) { Text(label, maxLines = 1) }
+            } else {
+                OutlinedButton(onClick = { onSelect(value) }) { Text(label, maxLines = 1) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PosterShelf(
+    title: String,
+    shows: List<ShowRecord>,
+    posterWidth: Dp,
+    pad: Dp,
+    onFocus: (String) -> Unit,
+    onOpen: (ShowRecord) -> Unit,
+    onMore: () -> Unit,
+) {
+    Shelf(title, pad, onMore) {
+        items(shows, key = { it.id }) { show ->
+            WallPoster(show, posterWidth, onFocus = { onFocus(show.id) }, onClick = { onOpen(show) })
+        }
+    }
+}
+
+@Composable
+private fun Shelf(
+    title: String,
+    pad: Dp,
+    onMore: (() -> Unit)?,
+    content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit,
+) {
+    Column(modifier = Modifier.padding(start = pad)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(end = pad, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(title, color = YingShiColors.Text, fontSize = 18.sp, modifier = Modifier.weight(1f))
+            if (onMore != null) {
+                OutlinedButton(onClick = onMore) { Text("更多") }
+            }
+        }
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(end = pad, top = 8.dp, bottom = 8.dp),
+            content = content,
+        )
+    }
+}
+
+@Composable
+private fun WallPoster(show: ShowRecord, width: Dp, onFocus: () -> Unit, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val factor = focusAmount(focused)
+    val dim by animateFloatAsState(if (focused) 1f else 0.72f, tween(180), label = "posterDim")
+    val height = if (width < 140.dp) 168.dp else 224.dp
+    FocusCard(
+        focused = focused,
+        dim = dim,
+        width = width * factor,
+        height = height * factor,
+        onFocus = {
+            focused = it
+            if (it) onFocus()
+        },
+        onClick = onClick,
+    ) {
+        PosterFace(show.title, show.posterUrl, Modifier.fillMaxSize())
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xE6101014))))
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+        ) {
+            Column {
+                Text(show.title, color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                show.rating?.let {
+                    Text("%.1f".format(it), color = Color(0xFFF5D37A), fontSize = 12.sp, maxLines = 1)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContinuePoster(card: ContinueCard, phone: Boolean, onFocus: () -> Unit, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val factor = focusAmount(focused)
+    val dim by animateFloatAsState(if (focused) 1f else 0.72f, tween(180), label = "continueDim")
+    val width = (if (phone) 132.dp else 248.dp) * factor
+    val height = (if (phone) 186.dp else 140.dp) * factor
+    FocusCard(
+        focused = focused,
+        dim = dim,
+        width = width,
+        height = height,
+        onFocus = {
+            focused = it
+            if (it) onFocus()
+        },
+        onClick = onClick,
+    ) {
+        PosterFace(card.show.title, card.show.posterUrl, Modifier.fillMaxSize())
+        if (focused) {
+            Icon(
+                Icons.Filled.PlayArrow,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.align(Alignment.Center).background(Color(0x66000000), RoundedCornerShape(20.dp)).padding(6.dp),
+            )
+        }
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xF0101014))))
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+        ) {
+            Text(card.show.title, color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val episode = card.episodeKey.trim()
+            if (episode.isNotEmpty()) {
+                Text(episode, color = Color(0xFFD5DBE3), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Box(
+                modifier = Modifier
+                    .padding(top = 6.dp)
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(Color(0x55FFFFFF)),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(card.fraction.coerceIn(0f, 1f))
+                        .height(3.dp)
+                        .background(Color.White),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FocusCard(
+    focused: Boolean,
+    dim: Float,
+    width: Dp,
+    height: Dp,
+    onFocus: (Boolean) -> Unit,
+    onClick: () -> Unit,
+    content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit,
+) {
+    val shape = RoundedCornerShape(12.dp)
+    com.cloudreel.tv.ui.Surface(
+        selected = focused,
+        onClick = onClick,
+        modifier = Modifier
+            .zIndex(if (focused) 1f else 0f)
+            .width(width)
+            .height(height)
+            .onFocusChanged { onFocus(it.isFocused) }
+            .graphicsLayer { alpha = dim }
+            .shadow(if (focused) 16.dp else 0.dp, shape, ambientColor = Color.White, spotColor = Color.White)
+            .border(if (focused) 3.dp else 0.dp, if (focused) Color.White else Color.Transparent, shape)
+            .clip(shape),
+    ) {
+        Box(Modifier.fillMaxSize(), content = content)
+    }
+}
+
+@Composable
+private fun HeroCard(show: ShowRecord, phone: Boolean, pad: Dp, onPlay: () -> Unit) {
+    val shape = RoundedCornerShape(if (phone) 18.dp else 16.dp)
+    Box(
+        modifier = Modifier
+            .padding(horizontal = pad)
+            .fillMaxWidth()
+            .height(if (phone) 228.dp else 280.dp)
+            .clip(shape)
+            .background(YingShiColors.Card),
+    ) {
+        val art = show.backdropUrl ?: show.posterUrl
+        if (art.isNullOrBlank()) {
+            PosterFace(show.title, null, Modifier.fillMaxSize())
+        } else {
+            AsyncImage(
+                model = art,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize().optionalBlur(if (phone) 0.dp else 18.dp),
+                contentScale = ContentScale.Crop,
+            )
+        }
+        Box(
+            modifier = Modifier.fillMaxSize().background(
+                if (phone) {
+                    Brush.verticalGradient(listOf(Color(0x22000000), Color(0xE6101014)))
+                } else {
+                    Brush.horizontalGradient(listOf(Color(0xF0101318), Color(0x66101318), Color(0x22101318)))
+                },
+            ),
+        )
+        Row(
+            modifier = Modifier.align(Alignment.BottomStart).padding(if (phone) 14.dp else 18.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            if (!phone) {
+                PosterFace(
+                    show.title,
+                    show.posterUrl,
+                    Modifier.width(118.dp).height(168.dp).clip(RoundedCornerShape(10.dp)),
+                )
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (phone) {
+                    Text("今日推荐", color = Color(0xFFD7C4FF), fontSize = 12.sp)
+                }
+                Text(
+                    show.title,
+                    color = Color.White,
+                    fontSize = if (phone) 26.sp else 32.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(showMeta(show), color = Color(0xFFD5DBE3), fontSize = if (phone) 12.sp else 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (show.overview.isNotBlank()) {
+                    Text(show.overview, color = Color(0xFFE8EDF2), fontSize = if (phone) 13.sp else 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                Button(onClick = onPlay) {
+                    Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                    Text(if (phone) "立即观看" else "播放")
+                }
+            }
+        }
+    }
+}
+
+private fun typeLabel(type: String?): String = when (type) {
+    null -> "全部类型"
+    "tv" -> "剧集"
+    else -> mediaTypeLabel(type)
+}
+
+private fun showMeta(show: ShowRecord): String {
+    return listOfNotNull(
+        show.year?.toString(),
+        mediaTypeLabel(show.mediaType),
+        show.genres.take(2).joinToString(" / ").ifBlank { null },
+        show.rating?.let { "★ ${"%.1f".format(it)}" },
+    ).joinToString("  ·  ")
+}
+
+private fun Modifier.optionalBlur(radius: Dp): Modifier {
+    if (radius <= 0.dp || Build.VERSION.SDK_INT < 31) return this
+    return blur(radius)
 }
