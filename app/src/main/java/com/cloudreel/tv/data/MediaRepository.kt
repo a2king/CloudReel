@@ -676,7 +676,13 @@ class MediaRepository(
                     withContext(Dispatchers.IO) { playableLineApi(config) }
                 }
             } catch (error: TimeoutCancellationException) {
+                android.util.Log.w("CloudReel", "选定采集接口超时 ${config.id}")
                 return emptyList()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                android.util.Log.w("CloudReel", "选定采集接口失败 ${config.id}: ${error.message}")
+                throw error
             }
         } else {
             null
@@ -698,6 +704,18 @@ class MediaRepository(
             }
         } catch (error: TimeoutCancellationException) {
             // 单源超时后仍回填已经拿到的条目。
+        }
+        if (tvBoxApi != null && acc.isEmpty()) {
+            try {
+                withTimeout(AggregatePolicy.SOURCE_TIMEOUT_MS) {
+                    withContext(Dispatchers.IO) {
+                        CmsJsonProvider(http, config.id, config.name, tvBoxApi, config.priority)
+                            .collectCatalog { acc.add(it) }
+                    }
+                }
+            } catch (error: TimeoutCancellationException) {
+                android.util.Log.w("CloudReel", "片单超时 ${config.id}")
+            }
         }
         return acc.toList()
     }
@@ -968,7 +986,7 @@ class MediaRepository(
         const val TEST_TVBOX_ID = "gitlab_tvbox"
         const val TEST_TVBOX_URL = "https://raw.githubusercontent.com/noimank/tvbox/main/tvboxmuti.json"
         /** 跟进多仓索引并写入采集接口缓存的时限。片单抓取仍用 AggregatePolicy.SOURCE_TIMEOUT_MS。 */
-        const val LINE_RESOLVE_TIMEOUT_MS = 20_000L
+        const val LINE_RESOLVE_TIMEOUT_MS = 60_000L
         const val WEBDAV_BODY =
             """<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:displayname/><d:resourcetype/><d:getcontenttype/></d:prop></d:propfind>"""
     }
