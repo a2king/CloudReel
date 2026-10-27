@@ -124,7 +124,25 @@ class MediaRepository(
                         )
                     }
                 }
-                if (dao.allSources().none { it.id == TEST_TVBOX_ID }) {
+                val testSource = dao.allSources().find { it.id == TEST_TVBOX_ID }
+                if (testSource == null || testSource.location != TEST_TVBOX_URL || !testSource.enabled) {
+                    if (testSource != null && testSource.location != TEST_TVBOX_URL) {
+                        lineCacheFile(TEST_TVBOX_ID).delete()
+                        lineRoleFile(TEST_TVBOX_ID).delete()
+                        liveScanFile(TEST_TVBOX_ID).delete()
+                        dao.upsertSourceHealth(
+                            SourceEntity(
+                                id = TEST_TVBOX_ID,
+                                name = "TVBox 测试源",
+                                apiUrl = TEST_TVBOX_URL,
+                                type = "site",
+                                enabled = true,
+                                priority = 1,
+                                lastOkAt = 0L,
+                                failCount = 0,
+                            ),
+                        )
+                    }
                     dao.upsertSource(
                         SourceConfigEntity(
                             id = TEST_TVBOX_ID,
@@ -132,7 +150,7 @@ class MediaRepository(
                             kind = SourceKinds.TVBOX,
                             location = TEST_TVBOX_URL,
                             enabled = true,
-                            priority = 5,
+                            priority = 1,
                             builtin = false,
                         ),
                     )
@@ -935,7 +953,7 @@ class MediaRepository(
         const val HOME_TIMEOUT_MS = 28_000L
         const val LIVE_CHANNEL_CAP = 600
         const val TEST_TVBOX_ID = "gitlab_tvbox"
-        const val TEST_TVBOX_URL = "https://gitlab.com/noimank/tvbox/-/raw/main/tvboxmuti.json"
+        const val TEST_TVBOX_URL = "https://raw.githubusercontent.com/noimank/tvbox/main/tvboxmuti.json"
         const val WEBDAV_BODY =
             """<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:displayname/><d:resourcetype/><d:getcontenttype/></d:prop></d:propfind>"""
     }
