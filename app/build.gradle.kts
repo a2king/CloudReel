@@ -8,15 +8,15 @@ plugins {
 }
 
 android {
-    namespace = "com.yingshicang.tv"
+    namespace = "com.cloudreel.tv"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.yingshicang.tv"
+        applicationId = "com.cloudreel.tv"
         minSdk = 23
         targetSdk = 35
-        versionCode = 15
-        versionName = "0.2.13"
+        versionCode = 16
+        versionName = "0.2.14"
     }
 
     buildTypes {

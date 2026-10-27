@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "YingShiTV"
+rootProject.name = "CloudReel"
 include(":app")

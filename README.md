@@ -1,6 +1,6 @@
 # 映视
 
-Android TV 上的影视聚合播放器，包名 `com.yingshicang.tv`。当前版本 **0.2.13**。
+Android TV 上的影视聚合播放器，包名 `com.cloudreel.tv`。当前版本 **0.2.14**。
 
 界面按横屏电视来排，遥控器可以操作，屏幕点击也可以用。首页、搜索、直播、网盘、收藏、历史、数据源、推送和设置都在左侧导航里。
 
@@ -44,9 +44,9 @@ gradlew.bat :app:assembleDebug
 
 | 路径 | 内容 |
 |---|---|
-| `app/src/main/java/com/yingshicang/tv/feature` | 首页、详情、播放、直播、网盘、数据源等界面 |
-| `app/src/main/java/com/yingshicang/tv/core` | 配置解析、采集、直播、网盘和播放相关逻辑 |
-| `app/src/main/java/com/yingshicang/tv/data` | 数据源导入和本地仓库 |
+| `app/src/main/java/com/cloudreel/tv/feature` | 首页、详情、播放、直播、网盘、数据源等界面 |
+| `app/src/main/java/com/cloudreel/tv/core` | 配置解析、采集、直播、网盘和播放相关逻辑 |
+| `app/src/main/java/com/cloudreel/tv/data` | 数据源导入和本地仓库 |
 | `app/src/test` | 解析和线路判断的单元测试 |
 
 ## 说明
