@@ -28,6 +28,8 @@ import com.cloudreel.tv.core.show.encodeUrlList
 import com.cloudreel.tv.core.show.foldCatalog
 import com.cloudreel.tv.core.show.linkTitle
 import com.cloudreel.tv.core.show.nextFailCount
+import com.cloudreel.tv.core.show.retainShow
+import com.cloudreel.tv.core.show.sourceCacheFresh
 import com.cloudreel.tv.core.show.stubId
 import com.cloudreel.tv.core.model.LiveChannel
 import kotlinx.coroutines.CancellationException
@@ -76,10 +78,12 @@ class ShowCatalog(
     suspend fun refresh(manual: Boolean = false, onShown: suspend (Int) -> Unit) {
         val configs = dao.enabledSources().filter { it.kind != SourceKinds.SCRIPT && it.kind != SourceKinds.DRIVE }
         val accumulated = mutableListOf<RawCatalogEntry>()
+        val startedAt = System.currentTimeMillis()
         coroutineScope {
             configs.map { config ->
                 async {
                     val health = ensureSource(config)
+                    if (!manual && sourceCacheFresh(health.lastOkAt, startedAt)) return@async
                     if (!manual && circuitOpen(health.failCount)) return@async
                     val entries = try {
                         fetchEntries(config)
@@ -94,7 +98,7 @@ class ShowCatalog(
                     val count = foldMutex.withLock {
                         accumulated += entries
                         val fold = foldCatalog(accumulated.toList(), System.currentTimeMillis())
-                        persist(fold)
+                        persist(fold, force = manual)
                         fold.shows.size
                     }
                     onShown(count)
@@ -106,7 +110,7 @@ class ShowCatalog(
     suspend fun materialize(entries: List<RawCatalogEntry>): String {
         if (entries.isEmpty()) throw IllegalStateException("没有可打开的节目")
         val fold = foldCatalog(entries, System.currentTimeMillis())
-        persist(fold)
+        persist(fold, force = true)
         return fold.shows.first().id
     }
 
@@ -159,8 +163,12 @@ class ShowCatalog(
         )
     }
 
-    private suspend fun persist(fold: com.cloudreel.tv.core.show.FoldResult) {
-        if (fold.shows.isNotEmpty()) dao.upsertShows(fold.shows.map { it.toEntity() })
+    private suspend fun persist(fold: com.cloudreel.tv.core.show.FoldResult, force: Boolean) {
+        val now = System.currentTimeMillis()
+        val resolved = fold.shows.map { incoming ->
+            retainShow(dao.show(incoming.id)?.toRecord(), incoming, now, force)
+        }
+        if (resolved.isNotEmpty()) dao.upsertShows(resolved.map { it.toEntity() })
         upsertStubs(fold.stubs)
     }
 
@@ -269,13 +277,19 @@ fun playbackOf(show: ShowRecord, link: StoredLink, episodeIndex: Int, positionMs
         lineIndex = 0,
         episodeIndex = index,
         resumePositionMs = positionMs,
+        playLinkId = link.id,
     )
 }
 
 fun playbackFor(session: ShowSession, signedIn: Set<String>): PlaybackRequest? {
-    val link = session.links.firstOrNull { stored ->
-        stored.episodes.isNotEmpty() && driveTabEnabled(stored.driveType, stored.driveType == null || stored.driveType in signedIn)
-    } ?: return null
+    fun playable(stored: StoredLink): Boolean {
+        return stored.episodes.isNotEmpty() &&
+            driveTabEnabled(stored.driveType, stored.driveType == null || stored.driveType in signedIn)
+    }
+    val preferred = session.progress?.playLinkId?.takeIf { it.isNotBlank() }
+    val link = session.links.firstOrNull { it.id == preferred && playable(it) }
+        ?: session.links.firstOrNull { playable(it) }
+        ?: return null
     val episodeIndex = link.episodes.indexOfFirst { it.name == session.progress?.episodeKey }.let { if (it < 0) 0 else it }
     val sameEpisode = link.episodes.getOrNull(episodeIndex)?.name == session.progress?.episodeKey
     val position = if (sameEpisode) session.progress?.positionMs ?: 0L else 0L

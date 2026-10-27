@@ -95,8 +95,18 @@ data class ChannelSlot(
 object AggregatePolicy {
     const val FAIL_THRESHOLD = 3
     const val SOURCE_TIMEOUT_MS = 5_000L
+    /** 源健康时间和节目元数据的自动刷新间隔。手动刷新不受此限制。 */
+    const val METADATA_TTL_MS = 6L * 60 * 60 * 1000
 
     fun circuitOpen(failCount: Int): Boolean = failCount >= FAIL_THRESHOLD
+}
+
+fun sourceCacheFresh(lastOkAt: Long, now: Long): Boolean {
+    return lastOkAt > 0L && now - lastOkAt < AggregatePolicy.METADATA_TTL_MS
+}
+
+fun showCacheFresh(updatedAt: Long, now: Long): Boolean {
+    return updatedAt > 0L && now - updatedAt < AggregatePolicy.METADATA_TTL_MS
 }
 
 val GENRE_AXIS = listOf(
@@ -213,6 +223,28 @@ fun mergeShows(items: List<ShowRecord>): ShowRecord {
         overview = items.maxBy { it.overview.length }.overview,
         releaseDate = items.firstNotNullOfOrNull { it.releaseDate?.ifBlank { null } },
         updatedAt = items.maxOf { it.updatedAt },
+    )
+}
+
+/**
+ * 缓存还在有效期内时，只补空白字段，不改已有海报、评分和更新时间。
+ * 过期或手动刷新时合并两边，并把更新时间拨到现在。
+ */
+fun retainShow(existing: ShowRecord?, incoming: ShowRecord, now: Long, force: Boolean): ShowRecord {
+    if (existing == null) return incoming.copy(updatedAt = now)
+    if (force || !showCacheFresh(existing.updatedAt, now)) {
+        return mergeShows(listOf(existing, incoming)).copy(updatedAt = now)
+    }
+    return existing.copy(
+        tmdbId = existing.tmdbId?.trim()?.ifBlank { null } ?: incoming.tmdbId?.trim()?.ifBlank { null },
+        title = existing.title.ifBlank { incoming.title },
+        year = existing.year ?: incoming.year,
+        genres = existing.genres.ifEmpty { incoming.genres },
+        rating = existing.rating ?: incoming.rating,
+        posterUrl = existing.posterUrl?.trim()?.ifBlank { null } ?: incoming.posterUrl?.trim()?.ifBlank { null },
+        backdropUrl = existing.backdropUrl?.trim()?.ifBlank { null } ?: incoming.backdropUrl?.trim()?.ifBlank { null },
+        overview = existing.overview.ifBlank { incoming.overview },
+        releaseDate = existing.releaseDate?.trim()?.ifBlank { null } ?: incoming.releaseDate?.trim()?.ifBlank { null },
     )
 }
 

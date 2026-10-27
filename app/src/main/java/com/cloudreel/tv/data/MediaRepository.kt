@@ -307,7 +307,7 @@ class MediaRepository(
                 episodeKey = episodeKey,
                 positionMs = progress.positionMs,
                 durationMs = progress.durationMs,
-                playLinkId = "",
+                playLinkId = progress.playLinkId,
                 updatedAt = System.currentTimeMillis(),
             ),
         )
@@ -631,17 +631,19 @@ class MediaRepository(
         val acc = java.util.Collections.synchronizedList(mutableListOf<RawCatalogEntry>())
         try {
             withTimeout(AggregatePolicy.SOURCE_TIMEOUT_MS) {
-                when (config.kind) {
-                    SourceKinds.ASSET -> {
-                        val text = context.assets.open(config.location).bufferedReader().use { it.readText() }
-                        parseAssetEntries(text, config.id, config.name).forEach { acc.add(it) }
-                    }
-                    SourceKinds.CMS -> CmsJsonProvider(http, config.id, config.name, config.location, config.priority)
-                        .collectCatalog { acc.add(it) }
-                    SourceKinds.TVBOX -> {
-                        val api = playableLineApi(config)
-                        CmsJsonProvider(http, config.id, config.name, api, config.priority)
+                withContext(Dispatchers.IO) {
+                    when (config.kind) {
+                        SourceKinds.ASSET -> {
+                            val text = context.assets.open(config.location).bufferedReader().use { it.readText() }
+                            parseAssetEntries(text, config.id, config.name).forEach { acc.add(it) }
+                        }
+                        SourceKinds.CMS -> CmsJsonProvider(http, config.id, config.name, config.location, config.priority)
                             .collectCatalog { acc.add(it) }
+                        SourceKinds.TVBOX -> {
+                            val api = playableLineApi(config)
+                            CmsJsonProvider(http, config.id, config.name, api, config.priority)
+                                .collectCatalog { acc.add(it) }
+                        }
                     }
                 }
             }

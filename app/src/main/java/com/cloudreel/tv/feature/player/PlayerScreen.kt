@@ -176,6 +176,7 @@ fun PlayerScreen(onExit: () -> Unit) {
                     headers = episode.headers,
                     positionMs = pos,
                     durationMs = dur,
+                    playLinkId = request.playLinkId,
                 ),
             )
         }

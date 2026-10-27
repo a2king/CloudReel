@@ -94,6 +94,8 @@ class CatalogTextTest {
         assertTrue(isUsableCmsPayload("""{"code":1,"list":[{"vod_id":1,"vod_name":"片子"}]}"""))
         assertTrue(isUsableCmsPayload("""{"data":{"list":[{"vod_id":"8"}]}}"""))
         assertTrue(isUsableCmsPayload("""{"list":[{"vod_name":"截断"""))
+        assertTrue(cmsListHasPoster("""{"list":[{"vod_name":"片子","vod_pic":"https://img/a.jpg"}]}"""))
+        assertFalse(cmsListHasPoster("""{"list":[{"vod_name":"片子","vod_pic":""}]}"""))
         assertFalse(isUsableCmsPayload("""{"code":1,"list":[]}"""))
         assertFalse(isUsableCmsPayload("<html>not json</html>"))
     }

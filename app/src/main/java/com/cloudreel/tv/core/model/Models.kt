@@ -106,6 +106,7 @@ data class PlaybackRequest(
     val resumePositionMs: Long,
     val liveChannel: Boolean = false,
     val driveRefresh: DriveRefresh? = null,
+    val playLinkId: String = "",
 )
 
 data class WatchProgress(
@@ -122,6 +123,7 @@ data class WatchProgress(
     val headers: Map<String, String>,
     val positionMs: Long,
     val durationMs: Long,
+    val playLinkId: String = "",
 )
 
 data class DriveRefresh(

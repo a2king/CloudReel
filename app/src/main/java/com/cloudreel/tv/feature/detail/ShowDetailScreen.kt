@@ -265,7 +265,13 @@ private fun ReadyShow(
 private data class ResumePoint(val linkIndex: Int, val episodeIndex: Int, val positionMs: Long, val label: String)
 
 private fun resumeLink(session: ShowSession, signedIn: Set<String>): Int {
-    val index = session.links.indexOfFirst { it.episodes.isNotEmpty() && (it.driveType == null || it.driveType in signedIn) }
+    fun playable(link: StoredLink): Boolean {
+        return link.episodes.isNotEmpty() && (link.driveType == null || link.driveType in signedIn)
+    }
+    val preferred = session.progress?.playLinkId?.takeIf { it.isNotBlank() }
+    val preferredIndex = session.links.indexOfFirst { it.id == preferred && playable(it) }
+    if (preferredIndex >= 0) return preferredIndex
+    val index = session.links.indexOfFirst { playable(it) }
     return index.coerceAtLeast(0)
 }
 

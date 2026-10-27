@@ -1,6 +1,12 @@
 package com.cloudreel.tv.core.show
 
+import com.cloudreel.tv.core.database.ProgressEntity
 import com.cloudreel.tv.core.live.LiveVerdict
+import com.cloudreel.tv.core.model.Episode
+import com.cloudreel.tv.data.ShowSession
+import com.cloudreel.tv.data.StoredLink
+import com.cloudreel.tv.data.playbackFor
+import com.cloudreel.tv.data.playbackOf
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -66,6 +72,49 @@ class ShowPipelineTest {
     }
 
     @Test
+    fun freshCacheKeepsPosterAndOnlyFillsBlanks() {
+        val ttl = AggregatePolicy.METADATA_TTL_MS
+        assertEquals(6L * 60 * 60 * 1000, ttl)
+        val now = 10_000_000_000L
+        assertTrue(sourceCacheFresh(now - 1_000, now))
+        assertFalse(sourceCacheFresh(0L, now))
+        assertFalse(sourceCacheFresh(now - ttl, now))
+        assertFalse(showCacheFresh(now - ttl, now))
+        val existing = record("earth", "movie", 2019, 8.0, listOf("科幻"), "2019-02-05").copy(
+            posterUrl = "https://img/kept.jpg",
+            overview = "已有简介",
+            backdropUrl = null,
+            updatedAt = now - 60_000,
+        )
+        val incoming = existing.copy(
+            posterUrl = "https://img/worse.jpg",
+            overview = "",
+            rating = 1.0,
+            backdropUrl = "https://img/back.jpg",
+            updatedAt = now,
+        )
+        val kept = retainShow(existing, incoming, now, force = false)
+        assertEquals("https://img/kept.jpg", kept.posterUrl)
+        assertEquals("已有简介", kept.overview)
+        assertEquals(8.0, kept.rating!!, 0.01)
+        assertEquals("https://img/back.jpg", kept.backdropUrl)
+        assertEquals(existing.updatedAt, kept.updatedAt)
+        val forced = retainShow(existing, incoming, now, force = true)
+        assertEquals(now, forced.updatedAt)
+        assertEquals(8.0, forced.rating!!, 0.01)
+        assertEquals("https://img/kept.jpg", forced.posterUrl)
+        val stale = retainShow(
+            existing.copy(updatedAt = now - ttl - 1, rating = 6.0),
+            incoming.copy(rating = 9.0, posterUrl = "https://img/new.jpg"),
+            now,
+            force = false,
+        )
+        assertEquals(now, stale.updatedAt)
+        assertEquals(9.0, stale.rating!!, 0.01)
+        assertEquals("https://img/kept.jpg", stale.posterUrl)
+    }
+
+    @Test
     fun playTabUsesSourceOrDriveName() {
         assertEquals("快看", linkTitle("快看", "线路1"))
         assertEquals("快看 · 超清", linkTitle("快看", "超清"))
@@ -94,6 +143,31 @@ class ShowPipelineTest {
         assertNull(advanceLiveUrl(start.copy(channelId = "c2", urlIndex = 0), 1))
         assertEquals(listOf("http://b"), dropDeadHead(listOf("http://a", "http://b"), LiveVerdict.DEAD))
         assertEquals(listOf("http://a"), dropDeadHead(listOf("http://a"), LiveVerdict.DEAD))
+    }
+
+    @Test
+    fun resumeUsesTheLinkThatWasPlaying() {
+        val show = record("earth", "movie", 2019, 8.0, listOf("科幻"), "2019")
+        val first = StoredLink("link-a", "src-a", "快看", null, listOf(Episode("正片", "https://a")), "1", null)
+        val second = StoredLink("link-b", "src-b", "超清", null, listOf(Episode("正片", "https://b")), "2", null)
+        val session = ShowSession(
+            show = show,
+            links = listOf(first, second),
+            progress = ProgressEntity(
+                id = "prog:earth:正片",
+                showId = show.id,
+                episodeKey = "正片",
+                positionMs = 12_000,
+                durationMs = 90_000,
+                playLinkId = "link-b",
+                updatedAt = 20,
+            ),
+        )
+        val request = playbackFor(session, emptySet())
+        assertEquals("link-b", request?.playLinkId)
+        assertEquals("超清", request?.lines?.single()?.name)
+        assertEquals(12_000L, request?.resumePositionMs)
+        assertEquals("link-a", playbackOf(show, first, 0, 0).playLinkId)
     }
 
     @Test
