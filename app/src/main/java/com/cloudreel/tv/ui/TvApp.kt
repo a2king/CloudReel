@@ -1,15 +1,17 @@
 package com.cloudreel.tv.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,6 +45,7 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.NavigationDrawer
 import androidx.tv.material3.Text
 import com.cloudreel.tv.feature.detail.DetailScreen
+import com.cloudreel.tv.feature.detail.ShowDetailScreen
 import com.cloudreel.tv.feature.drive.DriveScreen
 import com.cloudreel.tv.feature.home.HomeScreen
 import com.cloudreel.tv.feature.library.FavoriteScreen
@@ -83,6 +86,10 @@ fun TvApp() {
     val navController = rememberNavController()
     val entry by navController.currentBackStackEntryAsState()
     val route = entry?.destination?.route
+    if (isPhoneLayout()) {
+        PhoneShell(navController, route)
+        return
+    }
     NavigationDrawer(
         modifier = Modifier.fillMaxSize(),
         drawerContent = {
@@ -136,7 +143,80 @@ private fun AppNavHost(navController: NavHostController) {
             DetailScreen(
                 token = entry.arguments?.getString("token").orEmpty(),
                 onBack = { navController.popBackStack() },
+                onOpenDrive = { navController.openSection("drive") },
             )
+        }
+        composable("show/{token}") { entry ->
+            ShowDetailScreen(
+                token = entry.arguments?.getString("token").orEmpty(),
+                onBack = { navController.popBackStack() },
+                onOpenDrive = { navController.openSection("drive") },
+            )
+        }
+        composable("mine") { MineScreen(navController) }
+    }
+}
+
+@Composable
+private fun PhoneShell(navController: NavHostController, route: String?) {
+    val section = when {
+        route == null || route.startsWith("home") || route.startsWith("show/") || route.startsWith("detail/") -> "home"
+        route.startsWith("live") -> "live"
+        route.startsWith("search") -> "search"
+        else -> "mine"
+    }
+    val showBar = route?.startsWith("show/") != true && route?.startsWith("detail/") != true && route != "add-source"
+    Column(modifier = Modifier.fillMaxSize().background(YingShiColors.Bg)) {
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            AppNavHost(navController)
+        }
+        if (showBar) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+            ) {
+                listOf(
+                    NavItem("home", "首页", Icons.Filled.Home),
+                    NavItem("live", "直播", Icons.Filled.PlayArrow),
+                    NavItem("search", "搜索", Icons.Filled.Search),
+                    NavItem("mine", "我的", Icons.Filled.AccountBox),
+                ).forEach { item ->
+                    if (section == item.route) {
+                        Button(onClick = { navController.openSection(item.route) }) {
+                            Text(item.label, fontSize = 14.sp)
+                        }
+                    } else {
+                        OutlinedButton(onClick = { navController.openSection(item.route) }) {
+                            Text(item.label, fontSize = 14.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MineScreen(navController: NavHostController) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text("我的", fontSize = 24.sp, color = YingShiColors.Text)
+        listOf(
+            "favorite" to "收藏",
+            "history" to "历史",
+            "drive" to "网盘",
+            "source" to "数据源",
+            "push" to "推送",
+            "setting" to "设置",
+        ).forEach { (route, label) ->
+            Button(onClick = { navController.openSection(route) }, modifier = Modifier.fillMaxWidth()) {
+                Text(label)
+            }
         }
     }
 }

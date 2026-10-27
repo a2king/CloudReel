@@ -19,6 +19,7 @@ import com.cloudreel.tv.core.model.MediaCard
 import com.cloudreel.tv.core.model.MediaDetail
 import com.cloudreel.tv.core.model.PlayLine
 import com.cloudreel.tv.core.model.SearchHit
+import com.cloudreel.tv.core.show.RawCatalogEntry
 import com.cloudreel.tv.core.network.AppHttp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
@@ -36,6 +37,38 @@ class CmsJsonProvider(
     override val priority: Int,
 ) : MediaProvider {
     override suspend fun home(): List<MediaCard> = browse(HomeShelf.HOT_DRAMA).cards
+
+    /**
+     * 首页只要片单。不读取播放地址，播放地址留到详情。
+     */
+    suspend fun collectCatalog(onItem: (RawCatalogEntry) -> Unit) {
+        val types = loadTypes()
+        val seen = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+        fun emit(items: List<JSONObject>) {
+            for (item in items) {
+                if (seen.size >= 60) return
+                val raw = item.toRaw()
+                if (raw.rawVodId.isBlank() || !seen.add(raw.rawVodId)) continue
+                onItem(raw)
+            }
+        }
+        if (types.isEmpty()) {
+            emit(fetchTyped(null, null))
+            return
+        }
+        coroutineScope {
+            listOf(CmsKind.MOVIE, CmsKind.SERIES, CmsKind.VARIETY).map { kind ->
+                async {
+                    val ids = cmsShelfTypeIds(types, kind)
+                    val targets: List<String?> = if (ids.isEmpty()) listOf(null) else ids.take(2)
+                    for (typeId in targets) {
+                        if (seen.size >= 60) return@async
+                        emit(fetchTyped(typeId, null))
+                    }
+                }
+            }.awaitAll()
+        }
+    }
 
     suspend fun browse(shelf: HomeShelf): HomeShelfPage {
         val types = loadTypes()
@@ -85,6 +118,27 @@ class CmsJsonProvider(
                 list.optJSONObject(index)?.let { add(it) }
             }
         }
+    }
+
+    private fun JSONObject.toRaw(): RawCatalogEntry {
+        val poster = absolutizeUrl(baseUrl, optString("vod_pic"))
+        val slide = optString("vod_pic_slide").ifBlank { optString("vod_backdrop") }
+        return RawCatalogEntry(
+            sourceId = id,
+            sourceName = name,
+            rawVodId = sourceId(),
+            title = optString("vod_name").ifBlank { "未命名" },
+            yearText = optString("vod_year").ifBlank { null },
+            typeText = optString("type_name").ifBlank { null },
+            genres = splitPeople(optString("vod_class")),
+            posterUrl = poster,
+            backdropUrl = absolutizeUrl(baseUrl, slide).takeUnless { slide.isBlank() } ?: poster,
+            overview = stripHtml(optString("vod_content").ifBlank { optString("vod_blurb") }),
+            rating = optString("vod_score").toDoubleOrNull() ?: optString("vod_douban_score").toDoubleOrNull(),
+            releaseDate = optString("vod_pubdate").ifBlank { optString("vod_year") }.ifBlank { null },
+            tmdbId = optString("vod_tmdb").ifBlank { optString("tmdb_id") }.ifBlank { null },
+            remarks = optString("vod_remarks").ifBlank { null },
+        )
     }
 
     private fun JSONObject.toCard(): MediaCard {

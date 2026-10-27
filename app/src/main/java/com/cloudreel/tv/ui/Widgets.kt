@@ -12,7 +12,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -35,27 +38,11 @@ fun PosterCard(
         onClick = onClick,
         modifier = modifier.fillMaxWidth().touchActivate(onClick = onClick),
         image = {
-            if (poster.isNullOrBlank()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(248.dp)
-                        .background(YingShiColors.Card2),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(title.take(1), color = YingShiColors.Primary, fontSize = 32.sp)
-                }
-            } else {
-                AsyncImage(
-                    model = poster,
-                    contentDescription = title,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(248.dp)
-                        .background(YingShiColors.Card2),
-                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                )
-            }
+            PosterFace(
+                title = title,
+                poster = poster,
+                modifier = Modifier.fillMaxWidth().height(248.dp),
+            )
         },
         title = {
             Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 15.sp)
@@ -64,6 +51,27 @@ fun PosterCard(
             Text(subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp, color = YingShiColors.Sub)
         },
     )
+}
+
+@Composable
+fun PosterFace(title: String, poster: String?, modifier: Modifier = Modifier) {
+    if (poster.isNullOrBlank()) {
+        Box(
+            modifier = modifier.background(
+                Brush.linearGradient(listOf(Color(0xFF3C5670), Color(0xFF151A22), Color(0xFF0E1218))),
+            ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(title.take(2).ifBlank { "片" }, color = YingShiColors.Text, fontSize = 28.sp)
+        }
+    } else {
+        AsyncImage(
+            model = poster,
+            contentDescription = title,
+            modifier = modifier.background(YingShiColors.Card2),
+            contentScale = ContentScale.Crop,
+        )
+    }
 }
 
 @Composable

@@ -11,8 +11,14 @@ import androidx.room.RoomDatabase
         SearchHistoryEntity::class,
         LivePlaylistEntity::class,
         DriveAccountEntity::class,
+        SourceEntity::class,
+        ShowEntity::class,
+        PlayLinkEntity::class,
+        ProgressEntity::class,
+        LiveCategoryEntity::class,
+        LiveChannelEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {

@@ -46,9 +46,10 @@ import com.cloudreel.tv.ui.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.cloudreel.tv.core.catalog.ResumePolicy
-import com.cloudreel.tv.core.drive.CloudLink
 import com.cloudreel.tv.core.drive.cloudAccountLabel
 import com.cloudreel.tv.core.drive.lineCloud
+import com.cloudreel.tv.core.show.displayTab
+import com.cloudreel.tv.core.show.linkTitle
 import com.cloudreel.tv.core.catalog.readableError
 import com.cloudreel.tv.core.database.FavoriteEntity
 import com.cloudreel.tv.core.database.JsonCodec
@@ -164,7 +165,7 @@ private fun playStart(detail: AggregatedDetail, history: PlayHistoryEntity?): Pl
 }
 
 @Composable
-fun DetailScreen(token: String, onBack: () -> Unit) {
+fun DetailScreen(token: String, onBack: () -> Unit, onOpenDrive: () -> Unit = {}) {
     val request = DetailNavStore.get(token)
     if (request == null) {
         MessageScreen("这条内容已经失效，请返回重新打开", onBack)
@@ -184,7 +185,7 @@ fun DetailScreen(token: String, onBack: () -> Unit) {
     when (val current = state) {
         DetailUiState.Loading -> MessageScreen("正在读取详情…", onBack, showBack = false)
         is DetailUiState.Failed -> FailedDetail(current, request, onBack, viewModel::reload)
-        is DetailUiState.Ready -> ReadyDetail(current, request, onBack, viewModel::reload, viewModel::toggleFavorite)
+        is DetailUiState.Ready -> ReadyDetail(current, request, onBack, onOpenDrive, viewModel::reload, viewModel::toggleFavorite)
     }
 }
 
@@ -226,6 +227,7 @@ private fun ReadyDetail(
     state: DetailUiState.Ready,
     request: DetailRequest,
     onBack: () -> Unit,
+    onOpenDrive: () -> Unit,
     onReload: () -> Unit,
     onToggleFavorite: () -> Unit,
 ) {
@@ -247,7 +249,6 @@ private fun ReadyDetail(
     val start = playStart(detail, state.history)
     var lineIndex by remember(detail) { mutableIntStateOf(start.lineIndex.coerceAtLeast(0)) }
     var expanded by remember(detail) { mutableStateOf(false) }
-    val multipleSources = detail.lines.map { it.providerId }.distinct().size > 1
     fun play(index: Int, episodeIndex: Int, positionMs: Long) {
         val line = detail.lines.getOrNull(index) ?: return
         if (line.episodes.isEmpty()) return
@@ -343,17 +344,28 @@ private fun ReadyDetail(
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         itemsIndexed(detail.lines) { index, line ->
                             val cloud = lineCloud(line.name, line.episodes.map { it.name to it.url })
+                            val loggedIn = cloud != null && cloud.kind in signedIn
+                            val title = if (cloud == null) {
+                                linkTitle(line.providerName, line.name)
+                            } else {
+                                displayTab(linkTitle(line.providerName, line.name), cloud.kind, loggedIn)
+                            }
+                            val blocked = cloud != null && !loggedIn
                             val content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {
-                                LineCloudLabel(
-                                    lineLabel(line, multipleSources, line.episodes.size),
-                                    cloud,
-                                    cloud != null && cloud.kind in signedIn,
+                                Text(
+                                    title,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = if (blocked) YingShiColors.Sub else YingShiColors.Text,
                                 )
                             }
-                            if (index == lineIndex) {
-                                Button(onClick = { lineIndex = index }, content = content)
+                            val click = {
+                                if (blocked) onOpenDrive() else lineIndex = index
+                            }
+                            if (index == lineIndex && !blocked) {
+                                Button(onClick = click, content = content)
                             } else {
-                                OutlinedButton(onClick = { lineIndex = index }, content = content)
+                                OutlinedButton(onClick = click, content = content)
                             }
                         }
                     }
@@ -384,27 +396,6 @@ private fun ReadyDetail(
             }
         }
     }
-}
-
-@Composable
-private fun androidx.compose.foundation.layout.RowScope.LineCloudLabel(title: String, cloud: CloudLink?, loggedIn: Boolean) {
-    Column {
-        Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        if (cloud != null) {
-            Text(
-                cloudAccountLabel(cloud.title, loggedIn),
-                color = if (loggedIn) YingShiColors.Success else YingShiColors.Warning,
-                fontSize = 12.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
-
-private fun lineLabel(line: PlayLine, multipleSources: Boolean, count: Int): String {
-    val name = if (multipleSources) "${line.providerName} · ${line.name}" else line.name
-    return "$name  ${count}集"
 }
 
 private fun metaLine(detail: AggregatedDetail): String {

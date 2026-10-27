@@ -103,4 +103,52 @@ interface AppDao {
 
     @Query("DELETE FROM drive_account WHERE id = :id")
     suspend fun deleteDrive(id: String)
+
+    @Query("SELECT * FROM sources WHERE id = :id LIMIT 1")
+    suspend fun sourceHealth(id: String): SourceEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertSourceHealth(entity: SourceEntity)
+
+    @Query("SELECT * FROM shows ORDER BY updated_at DESC")
+    fun observeShows(): Flow<List<ShowEntity>>
+
+    @Query("SELECT * FROM shows WHERE id = :id LIMIT 1")
+    suspend fun show(id: String): ShowEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertShows(items: List<ShowEntity>)
+
+    @Query("SELECT * FROM play_links WHERE show_id = :showId")
+    suspend fun linksFor(showId: String): List<PlayLinkEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertPlayLinks(items: List<PlayLinkEntity>)
+
+    @Query("SELECT * FROM progress ORDER BY updated_at DESC")
+    fun observeProgress(): Flow<List<ProgressEntity>>
+
+    @Query("SELECT * FROM progress WHERE show_id = :showId ORDER BY updated_at DESC LIMIT 1")
+    suspend fun latestProgress(showId: String): ProgressEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertProgress(entity: ProgressEntity)
+
+    @Query("DELETE FROM live_categories")
+    suspend fun clearLiveCategories()
+
+    @Query("DELETE FROM live_channels")
+    suspend fun clearLiveChannels()
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertLiveCategories(items: List<LiveCategoryEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertLiveChannels(items: List<LiveChannelEntity>)
+
+    @Query("SELECT * FROM live_categories")
+    fun observeLiveCategories(): Flow<List<LiveCategoryEntity>>
+
+    @Query("SELECT * FROM live_channels")
+    fun observeLiveChannels(): Flow<List<LiveChannelEntity>>
 }
